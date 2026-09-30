@@ -1,0 +1,69 @@
+@import "tailwindcss";
+@import "uplot/dist/uPlot.min.css";
+
+/* Booth theme: high contrast, dark, readable from 3 m. Brand colors are
+   overridden at runtime from Admin > Branding (see BrandProvider). */
+:root {
+  --bg: #0b0f14;
+  --panel: #131a22;
+  --panel-2: #1b2430;
+  --line: #2a3644;
+  --text: #f2f5f8;
+  --muted: #9fb0c2;
+  --brand: #00a3e0;
+  --accent: #ffb000;
+  --good: #3ddc84;
+  --warn: #ffb000;
+  --bad: #ff5c5c;
+  --gps: #00a3e0;
+  --fused: #b48cff;
+  --recon: #ffb000;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+@layer components {
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.btn { display: inline-flex; align-items: center; gap: .5rem; padding: .55rem 1rem; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line); font-weight: 600; cursor: pointer; }
+.btn:hover { border-color: var(--brand); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: var(--brand); border-color: var(--brand); color: #001018; }
+.btn-danger { background: transparent; border-color: var(--bad); color: var(--bad); }
+.input { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .55rem .75rem; width: 100%; }
+.input:focus { outline: 2px solid var(--brand); outline-offset: 0; }
+.label { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.pill { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .75rem; font-weight: 700;
+  border: 1px solid var(--line); }
+table.grid-table { width: 100%; border-collapse: collapse; }
+table.grid-table th { text-align: left; font-size: .75rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .05em; padding: .5rem; border-bottom: 1px solid var(--line); }
+table.grid-table td { padding: .5rem; border-bottom: 1px solid var(--line); }
+}
+
+/* uPlot on dark */
+.uplot { font-family: var(--font-sans); }
+.u-legend { color: var(--text); font-size: 12px; }
+.u-legend .u-marker { border-radius: 2px; }

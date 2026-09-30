@@ -1,0 +1,19 @@
+PROFILE = {
+    "id": "drone",
+    "name": "Drone flight",
+    "description": "Multirotor flight: motor spin-up, climb, propeller signature, peak event.",
+    "tabs": ["story", "overview", "timeseries", "frequency", "shock", "environment", "motion"],
+    "featured_roles": ["hf_accel", "accel", "gyro", "env"],
+    "frequency_role": "accel",
+    "story_rules": [
+        "duration",
+        {"rule": "motors", "params": {"band": [50, 500], "factor": 4.0}},
+        {"rule": "climb", "params": {"min_m": 2.0}},
+        {"rule": "dominant_frequency", "params": {"band": [150, 400], "label": "Propeller signature", "axis": "resultant"}},
+        "peak_event",
+        "rotation",
+        "temperature",
+        "light",
+        "gps_distance",
+    ],
+}

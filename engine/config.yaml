@@ -1,0 +1,90 @@
+# Every tunable threshold for the engine lives here. Nothing is hard-coded.
+# Values can be overridden per course (see course.settings) where noted.
+
+paths:
+  data_dir: data                 # relative to repo root unless absolute
+  watch_folder: ""               # e.g. /Volumes/ENDAQ/DATA ; empty disables the watcher
+  sensor_data_subdir: DATA       # folder on the mounted sensor that holds recordings
+
+stillness:
+  window_s: 1.0                  # analysis window for rolling statistics
+  mag_band_g: 0.06               # |accel| must stay within 1 g +/- this band
+  accel_std_g: 0.012             # rolling std of |accel| must stay below this
+  gyro_max_dps: 3.0              # rolling mean of |rotation| must stay below this
+  min_rest_s: 8.0                # shortest rest accepted as a check-in
+  target_rest_s: 10.0            # what participants are told to do
+  merge_gap_s: 0.6               # join rest segments separated by short blips
+  tremor_band_hz: [4.0, 12.0]    # hand tremor band
+  tremor_rms_max_g: 0.0035       # band RMS above this = held in a hand, rejected
+  gravity_lowpass_hz: 0.3
+
+orientation:
+  match_max_deg: 20.0            # max angle between rest gravity and holder vector
+  min_holder_separation_deg: 40.0  # holders closer than this are ambiguous
+  reserved_face_up: [0.0, 0.0, 1.0]   # "flat, face up" in sensor axes, never a station
+  reserved_tolerance_deg: 20.0
+
+taps:
+  highpass_hz: 5.0
+  threshold_g: 3.0
+  min_spacing_s: 0.15
+  max_spacing_s: 0.7
+  max_gap_before_rest_s: 4.0     # a tap group must end within this long before the rest
+
+beacons:
+  enabled_default: false
+  frequencies_hz: [47, 73, 113, 157, 199, 241, 283, 331]
+  min_sample_rate_hz: 1000
+  snr_min: 8.0                   # peak power over median band power
+  tolerance_hz: 3.0
+
+gps:
+  match_radius_m: 12.0           # default; survey quality report may adjust
+  min_radius_m: 6.0
+  max_radius_m: 30.0
+  radius_sigma_factor: 1.6       # radius = factor * typical station accuracy (95% radius)
+  hdop_max: 5.0
+  accuracy_max_m: 40.0
+  sats_min: 4
+  max_walk_speed_mps: 3.0        # jumps faster than this are rejected
+  smooth_window_s: 5.0
+  good_fix_ratio: 0.85           # availability above this + accuracy below good_acc -> GPS mode
+  good_accuracy_m: 9.0
+  usable_fix_ratio: 0.5          # above this + accuracy below usable_acc -> fused mode
+  usable_accuracy_m: 30.0
+
+steps:
+  band_hz: [1.0, 3.0]
+  min_peak_g: 0.05
+  min_spacing_s: 0.3
+  step_length_m: 0.7
+  walking_min_cadence_spm: 60
+
+dead_reckoning:
+  min_leg_steps: 6
+  max_scale: 2.5                 # leg similarity transform scale sanity limit
+  min_scale: 0.4
+
+fusion:
+  process_noise: 0.5
+  step_noise_m: 0.25
+  default_gps_sigma_m: 5.0
+  anchor_sigma_m: 2.0            # check-ins act as position fixes at the station
+
+floors:
+  pa_per_m: 12.0
+  level_change_m: 2.5
+  smooth_s: 5.0
+
+course:
+  min_station_separation_m: 15.0
+  default_detour_factor: 1.3
+  participant_rest_s: 10.0
+  survey_min_rest_s: 12.0
+
+scoring:
+  vibration_band_hz: [5.0, 100.0]
+
+processing:
+  max_points_timeseries: 4000
+  story_peak_g_min: 2.0

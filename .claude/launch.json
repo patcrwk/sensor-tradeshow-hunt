@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "engine",
+      "runtimeExecutable": "/Users/patrick/Desktop/documents/new/sensor-tradeshow-hunt/.venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "engine.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/Users/patrick/Desktop/documents/new/sensor-tradeshow-hunt"],
+      "port": 8000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "/Users/patrick/Desktop/documents/new/sensor-tradeshow-hunt/web", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

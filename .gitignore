@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+.next/
+web/.env*.local
+/data/
+/fixtures/*.IDE
+/fixtures/synthetic/
+*.parquet
+.DS_Store
