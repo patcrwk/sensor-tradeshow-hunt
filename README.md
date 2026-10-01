@@ -1,6 +1,6 @@
-# enDAQ Sensor Demo Suite
+# BDAS Sensor Demo Suite
 
-Trade show demo software for enDAQ sensors: a GPS scavenger hunt with a live
+Big Duck Applied Sciences (BDAS) trade show demo software for enDAQ sensors: a GPS scavenger hunt with a live
 leaderboard, course mapping from a crew survey walk, and a Recording Explorer
 for any `.IDE` file (starting with a drone flight).
 

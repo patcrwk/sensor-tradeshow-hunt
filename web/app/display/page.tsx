@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import CourseMap from "@/components/CourseMap";
 import Leaderboard from "@/components/Leaderboard";
+import Wordmark from "@/components/Wordmark";
 import { useSettings } from "@/components/BrandProvider";
 import { turbo } from "@/components/Heatmap";
 import { api, useApi, useEvents } from "@/lib/api";
@@ -54,8 +55,8 @@ export default function Display() {
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-bg cursor-none">
       <header className="flex items-center justify-between px-12 py-6 border-b border-line">
         <div className="flex items-center gap-6">
-          {b?.logo_url ? <img src={b.logo_url} className="h-16" alt="" /> : <span className="text-5xl font-black text-brand">{b?.company || "enDAQ"}</span>}
-          <span className="text-4xl font-bold">{b?.event_name}</span>
+          <Wordmark size="lg" />
+          <span className="text-4xl font-bold border-l border-line pl-6">{b?.event_name}</span>
         </div>
         <Clock />
       </header>
@@ -66,6 +67,7 @@ export default function Display() {
           cur === "heatmap" ? <HeatPanel d={dash.data} course={course.data} /> :
           cur === "environment" ? <EnvPanel d={dash.data} course={course.data} /> :
           cur === "course" ? <CoursePanel course={course.data} /> :
+          cur === "join" ? <JoinPanel course={course.data} leader={lbs.data?.fastest?.rows?.[0]} eventName={b?.event_name} /> :
           cur === "story:library" && story ? <StoryPanel rec={story} /> :
           <Leaderboard id="fastest" lb={lbs.data?.fastest} big limit={8} />}
       </main>
@@ -182,6 +184,37 @@ function EnvPanel({ d, course }: { d: any; course: any }) {
         <div className="text-3xl text-muted">Averaged from every participant's sensor as they walked. A crowd-sourced map of the venue.</div>
         {vals.length > 0 && <div className="text-5xl font-black tabular">{lo.toFixed(1)} to {hi.toFixed(1)} {unit}</div>}
         <div className="h-6 rounded" style={{ background: `linear-gradient(90deg, ${[0, .25, .5, .75, 1].map((x) => turbo(x)).join(",")})` }} />
+      </div>
+    </div>
+  );
+}
+
+function JoinPanel({ course, leader, eventName }: { course: any; leader?: any; eventName?: string }) {
+  const cd = course?.data;
+  const steps: [string, string][] = [
+    ["Pick up a sensor", "at the booth. It is already recording."],
+    ["Find every station", "Set it down and keep it perfectly still for 10 seconds."],
+    ["Bring it back", "and watch your results appear right here."],
+  ];
+  return (
+    <div className="h-full grid grid-cols-[3fr_2fr] gap-12 items-center">
+      <div>
+        <div className="text-3xl text-accent font-bold uppercase tracking-widest mb-4">Play the {eventName || "Sensor Scavenger Hunt"}</div>
+        <h2 className="text-8xl font-black leading-none mb-10">See what a sensor sees.</h2>
+        <ol className="space-y-6">
+          {steps.map(([t, d], i) => (
+            <li key={t} className="flex gap-6 items-baseline">
+              <span className="text-7xl font-black text-brand w-16">{i + 1}</span>
+              <span className="text-4xl"><b>{t}</b> <span className="text-muted">{d}</span></span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="space-y-6">
+        {cd && <Big label="Stations" value={cd.stations.length} sub="hidden around the show floor" />}
+        {cd && <Big label="Crew time to beat" value={fmtTime(cd.par.par_time_s, 0)} />}
+        {leader && <Big label="Current leader" value={leader.name} sub={fmtTime(leader.value)} />}
+        <div className="text-3xl text-muted">Your route, steps, stops and steadiness, all measured by the sensor.</div>
       </div>
     </div>
   );

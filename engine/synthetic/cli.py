@@ -56,8 +56,17 @@ def main():
     ap.add_argument("--serial", type=int, default=90001)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--no-survey", action="store_true")
+    ap.add_argument("--start-in-hours", type=float, default=None,
+                    help="timestamp participant recordings this far ahead, so check-outs made before then match")
+    ap.add_argument("--zips-only", action="store_true", help="remove the unzipped bundle folders")
     a = ap.parse_args()
-    files = generate_set(Path(a.out), a.gps, a.holders, a.taps, a.serial, a.seed, a.participants, not a.no_survey)
+    start = time.time() + a.start_in_hours * 3600 if a.start_in_hours is not None else None
+    files = generate_set(Path(a.out), a.gps, a.holders, a.taps, a.serial, a.seed, a.participants, not a.no_survey,
+                         start_epoch=start)
+    if a.zips_only:
+        import shutil
+        for f in files:
+            shutil.rmtree(f.with_name(f.name.removesuffix(".synth.zip")), ignore_errors=True)
     for f in files:
         print(f)
 

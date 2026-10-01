@@ -10,3 +10,4 @@ web/.env*.local
 /fixtures/synthetic/
 *.parquet
 .DS_Store
+/fixtures/mock/

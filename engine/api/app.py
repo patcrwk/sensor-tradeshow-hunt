@@ -28,10 +28,11 @@ from .db import (AuditLog, Course, Participant, Recording, Run, Sensor, SurveyFi
 
 log = logging.getLogger("engine")
 
-DEFAULT_BRANDING = {"event_name": "enDAQ Sensor Scavenger Hunt", "company": "enDAQ",
+DEFAULT_BRANDING = {"event_name": "Sensor Scavenger Hunt", "company": "BDAS",
+                    "company_full": "Big Duck Applied Sciences",
                     "primary": "#00a3e0", "accent": "#ffb000", "logo_url": None,
-                    "tagline": "Every number on this screen was measured by the sensor."}
-DEFAULT_KIOSK = {"panels": ["leaderboard:fastest", "course", "leaderboard:efficient", "crowd", "leaderboard:crew",
+                    "tagline": "From raw sensor data to real understanding."}
+DEFAULT_KIOSK = {"panels": ["join", "leaderboard:fastest", "course", "leaderboard:efficient", "crowd", "leaderboard:crew",
                             "heatmap", "leaderboard:steady", "environment", "story:library"],
                  "seconds_per_panel": 15, "story_recording_ids": []}
 
@@ -54,7 +55,7 @@ async def lifespan(app: FastAPI):
     watcher.stop()
 
 
-app = FastAPI(title="enDAQ Sensor Demo Engine", lifespan=lifespan)
+app = FastAPI(title="BDAS Sensor Demo Engine", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -634,6 +635,8 @@ def recording_analysis(rec_id: int, part: str | None = None):
     a = S.recording_analysis(r)
     if a is None:
         raise HTTPException(409, "analysis not ready")
+    from ..explorer.profiles import get_profile
+    a = {**a, "profile": get_profile(r.profile)}   # tabs follow the current profile definition
     if part:
         return a.get(part)
     return {k: v for k, v in a.items() if k not in ("frequency",)} | {"frequency_ready": True}
@@ -650,6 +653,17 @@ def recording_ts(rec_id: int, ch: str, t0: float | None = None, t1: float | None
         return window(b, ch, t0, t1, min(max(n, 50), 5000))
     except (KeyError, FileNotFoundError):
         _404("channel not found")
+
+
+@app.get("/api/recordings/{rec_id}/replay")
+async def recording_replay(rec_id: int):
+    with session() as s:
+        r = s.get(Recording, rec_id)
+    if not r:
+        _404()
+    if r.status != "ready":
+        raise HTTPException(409, "analysis not ready")
+    return await asyncio.to_thread(S.recording_replay, r)
 
 
 @app.patch("/api/recordings/{rec_id}")

@@ -2,6 +2,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import CourseMap from "@/components/CourseMap";
 import Heatmap from "@/components/Heatmap";
+import ReplayScene from "@/components/ReplayScene";
 import { ErrorBox, Page, Stat, StatusPill, Tabs } from "@/components/Nav";
 import UPlotChart, { PALETTE } from "@/components/UPlotChart";
 import { api, useApi } from "@/lib/api";
@@ -9,7 +10,7 @@ import { fmtTime } from "@/lib/format";
 
 const TAB_LABEL: Record<string, string> = {
   overview: "Overview", timeseries: "Time Series", frequency: "Frequency", shock: "Shock and Events",
-  environment: "Environment", motion: "Motion and Location", story: "Story",
+  environment: "Environment", motion: "Motion and Location", story: "Story", replay: "Replay",
 };
 
 export default function RecordingPage({ params }: { params: Promise<{ id: string }> }) {
@@ -37,6 +38,7 @@ export default function RecordingPage({ params }: { params: Promise<{ id: string
           {cur === "shock" && <Shock s={a.data.shock} />}
           {cur === "environment" && <Environment e={a.data.environment} />}
           {cur === "motion" && <Motion m={a.data.motion} g={a.data.gps} />}
+          {cur === "replay" && <ReplayTab id={id} title={rec.data.title} />}
           {cur === "story" && <Story rec={rec.data} st={a.data.story} onSaved={() => { rec.reload(); a.reload(); }} />}
         </>
       )}
@@ -55,6 +57,13 @@ function ProfilePicker({ rec, onChange }: { rec: any; onChange: () => void }) {
         onChange={async (e) => { await api(`/api/recordings/${rec.id}`, { method: "PATCH", json: { in_library: e.target.checked } }); onChange(); }} /> in library</label>
     </div>
   );
+}
+
+function ReplayTab({ id, title }: { id: string; title: string }) {
+  const { data, error } = useApi<any>(`/api/recordings/${id}/replay`);
+  if (error) return <ErrorBox error={error} />;
+  if (!data) return <div className="card p-6 text-muted">Reconstructing the recording from the sensor data (first time only)...</div>;
+  return <div className="card p-4"><ReplayScene data={data} title={title} /></div>;
 }
 
 function Overview({ o, rec }: { o: any; rec: any }) {

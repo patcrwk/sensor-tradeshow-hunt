@@ -6,6 +6,7 @@ import { ErrorBox, Page } from "@/components/Nav";
 import { api, apiBase, useApi } from "@/lib/api";
 
 const PANEL_OPTIONS = [
+  ["join", "How to play (invites passers-by to join)"],
   ["leaderboard:fastest", "Leaderboard: fastest"], ["leaderboard:efficient", "Leaderboard: most efficient"],
   ["leaderboard:crew", "Leaderboard: beat the crew"], ["leaderboard:steady", "Leaderboard: steadiest hands"],
   ["leaderboard:steps", "Leaderboard: most steps"], ["leaderboard:cadence", "Leaderboard: highest cadence"],
@@ -41,7 +42,10 @@ export default function Admin() {
         <section className="card p-5 space-y-3">
           <h2 className="text-xl font-bold">Event and branding</h2>
           <Field label="Event name (big screen)" value={b.event_name} onChange={(v) => setS({ ...s, branding: { ...b, event_name: v } })} />
-          <Field label="Company" value={b.company} onChange={(v) => setS({ ...s, branding: { ...b, company: v } })} />
+          <div className="grid grid-cols-[1fr_2fr] gap-3">
+            <Field label="Short name (wordmark)" value={b.company} onChange={(v) => setS({ ...s, branding: { ...b, company: v } })} />
+            <Field label="Full company name" value={b.company_full || ""} onChange={(v) => setS({ ...s, branding: { ...b, company_full: v } })} />
+          </div>
           <Field label="Tagline" value={b.tagline} onChange={(v) => setS({ ...s, branding: { ...b, tagline: v } })} />
           <Field label="Logo URL (optional; put files in web/public and use /logo.png)" value={b.logo_url || ""} onChange={(v) => setS({ ...s, branding: { ...b, logo_url: v || null } })} />
           <div className="grid grid-cols-2 gap-3">

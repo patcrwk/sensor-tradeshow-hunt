@@ -2,7 +2,8 @@ PROFILE = {
     "id": "generic",
     "name": "Generic",
     "description": "Any enDAQ recording.",
-    "tabs": ["overview", "timeseries", "frequency", "shock", "environment", "motion", "story"],
+    "replay_model": "sensor",
+    "tabs": ["overview", "replay", "timeseries", "frequency", "shock", "environment", "motion", "story"],
     "featured_roles": ["accel", "gyro", "env", "light", "gps"],
     "frequency_role": None,          # None = high-rate accel when present
     "story_rules": [

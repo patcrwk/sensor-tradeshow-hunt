@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSettings } from "./BrandProvider";
+import Wordmark from "./Wordmark";
 
 const ITEMS = [
   { href: "/display", label: "Display" },
@@ -13,15 +13,10 @@ const ITEMS = [
 
 export default function Nav() {
   const path = usePathname();
-  const { settings } = useSettings();
-  const b = settings?.branding;
   return (
     <header className="border-b border-line bg-panel sticky top-0 z-30">
       <div className="mx-auto max-w-[1600px] px-4 flex items-center gap-6 h-14">
-        <Link href="/" className="flex items-center gap-2 font-bold text-lg whitespace-nowrap">
-          {b?.logo_url ? <img src={b.logo_url} alt="" className="h-7" /> : <span className="text-brand">{b?.company || "enDAQ"}</span>}
-          <span className="text-muted font-medium hidden md:inline">{b?.event_name || "Sensor Demo"}</span>
-        </Link>
+        <Link href="/" className="flex items-center"><Wordmark /></Link>
         <nav className="flex gap-1 overflow-x-auto">
           {ITEMS.map((i) => {
             const on = path === i.href || path.startsWith(i.href + "/");

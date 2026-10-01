@@ -2,7 +2,8 @@ PROFILE = {
     "id": "drone",
     "name": "Drone flight",
     "description": "Multirotor flight: motor spin-up, climb, propeller signature, peak event.",
-    "tabs": ["story", "overview", "timeseries", "frequency", "shock", "environment", "motion"],
+    "replay_model": "quadcopter",
+    "tabs": ["story", "replay", "overview", "timeseries", "frequency", "shock", "environment", "motion"],
     "featured_roles": ["hf_accel", "accel", "gyro", "env"],
     "frequency_role": "accel",
     "story_rules": [

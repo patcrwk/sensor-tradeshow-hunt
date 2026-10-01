@@ -489,6 +489,19 @@ def _read_json(path: str, mtime: float) -> dict:
     return json.loads(Path(path).read_text())
 
 
+def recording_replay(rec: Recording) -> dict:
+    """Reconstructed replay track, computed on first request and cached per profile model."""
+    from ..explorer.profiles import get_profile
+    from ..explorer.replay import build_replay
+    model = get_profile(rec.profile).get("replay_model", "sensor")
+    path = dirs()["analysis"] / f"rec_{rec.id}_replay_{model}.json"
+    if path.exists():
+        return _read_json(str(path), path.stat().st_mtime)
+    r = build_replay(bundle_for(rec.upload_id), recording_analysis(rec), model)
+    path.write_text(json.dumps(r))
+    return r
+
+
 def update_recording(rec_id: int, patch: dict) -> Recording:
     with session() as s:
         r = s.get(Recording, rec_id)
