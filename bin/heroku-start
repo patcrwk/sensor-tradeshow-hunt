@@ -15,12 +15,17 @@ if ! command -v node >/dev/null 2>&1 || [ ! -f web/.next/standalone/server.js ];
   exit 1
 fi
 
-python -m uvicorn engine.api.app:app --host 127.0.0.1 --port "$ENGINE_PORT" &
+# Exactly one engine process: live updates and background processing live in
+# that process, and SQLite must not be initialised by two workers at once.
+# (Heroku's Python buildpack sets WEB_CONCURRENCY, which uvicorn would obey.)
+unset WEB_CONCURRENCY
+python -m uvicorn engine.api.app:app --host 127.0.0.1 --port "$ENGINE_PORT" --workers 1 &
 engine_pid=$!
 
-# Wait for the engine before accepting traffic
-for _ in $(seq 1 60); do
+# Wait for the engine before accepting traffic (Heroku allows 60 s to bind $PORT)
+for _ in $(seq 1 45); do
   if curl -fs "http://127.0.0.1:$ENGINE_PORT/api/health" >/dev/null 2>&1; then break; fi
+  if ! kill -0 "$engine_pid" 2>/dev/null; then echo "ERROR: engine failed to start; see the traceback above" >&2; exit 1; fi
   sleep 1
 done
 
