@@ -6,6 +6,15 @@ export PYTHONPATH="$PWD"
 export DATA_DIR="${DATA_DIR:-$PWD/data}"
 export ENGINE_PORT="${ENGINE_PORT:-8000}"
 
+# Fail with a clear message instead of a bare "Application error"
+if ! command -v node >/dev/null 2>&1 || [ ! -f web/.next/standalone/server.js ]; then
+  echo "ERROR: the web app was not built. This app needs two buildpacks, Node first:" >&2
+  echo "  heroku buildpacks:clear && heroku buildpacks:add heroku/nodejs && heroku buildpacks:add heroku/python" >&2
+  echo "and these config vars set before building:" >&2
+  echo "  heroku config:set ENGINE_INTERNAL_URL=http://127.0.0.1:8000 NEXT_PUBLIC_SAME_ORIGIN_API=1" >&2
+  exit 1
+fi
+
 python -m uvicorn engine.api.app:app --host 127.0.0.1 --port "$ENGINE_PORT" &
 engine_pid=$!
 
