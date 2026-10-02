@@ -5,6 +5,7 @@ import numpy as np
 
 from ..config import get_config
 from ..detect.identity import BOOTH, identify_rest
+from ..detect.qr import match_scans
 from ..detect.stillness import Rest, detect_rests
 from ..detect.taps import detect_taps, group_taps
 from ..io.bundle import Bundle
@@ -15,7 +16,8 @@ from .metrics import run_metrics, sensor_view
 from .route_compare import compare_legs
 
 
-def process_run(b: Bundle, course: dict | None, cfg=None, overrides: dict | None = None) -> dict:
+def process_run(b: Bundle, course: dict | None, cfg=None, overrides: dict | None = None,
+                scans: list[dict] | None = None) -> dict:
     """course: runtime course (see course.survey.runtime_course) or None (Phase 1 mode).
 
     overrides: {"checkins": [...]} manual check-in list from the review screen;
@@ -25,7 +27,11 @@ def process_run(b: Bundle, course: dict | None, cfg=None, overrides: dict | None
     st = detect_rests(b, cfg)
     rests = st.rests
     groups = group_taps(detect_taps(b, cfg), cfg)
-    idents = [identify_rest(b, r, course, groups, cfg) if course else None for r in rests]
+    qr = None
+    if course and "qr" in (course.get("identity_methods") or []):
+        qr = match_scans(scans or [], rests, b.meta.get("start_epoch"), cfg)
+    idents = [identify_rest(b, r, course, groups, cfg, extra={"qr": qr["per_rest"][i]} if qr else None)
+              if course else None for i, r in enumerate(rests)]
 
     notes: list[str] = []
     start_i, finish_i = _find_start_finish(rests, idents, notes)
@@ -103,6 +109,7 @@ def process_run(b: Bundle, course: dict | None, cfg=None, overrides: dict | None
         "steps": steps.to_dict(),
         "sensor_view": sensor_view(b, st, cfg),
         "notes": notes,
+        "qr": {k: v for k, v in qr.items() if k != "per_rest"} if qr else None,
         "needs_review": needs_review,
         "has_gps": b.has_gps,
     }
@@ -150,10 +157,11 @@ def _find_start_finish(rests, idents, notes):
         after = [i for i in booth if i > stations[-1]]
         s = before[-1] if before else 0
         f = after[0] if after else n - 1
-    if station(s) != BOOTH:
-        notes.append("START rest not recognized as the booth; assumed the first rest")
-    if station(f) != BOOTH:
-        notes.append("FINISH rest not recognized as the booth; assumed the last rest")
+    # Only flag when the assumed rest was identified as something else (a station)
+    if station(s) not in (BOOTH, None):
+        notes.append("START rest matched a station, not the booth; assumed the first rest")
+    if station(f) not in (BOOTH, None):
+        notes.append("FINISH rest matched a station, not the booth; assumed the last rest")
     if f == s:
         return s, None
     return s, f

@@ -9,20 +9,20 @@ from pathlib import Path
 FORMAT = "endaq-course-package/1"
 
 
-def export_package(course_meta: dict, course_doc: dict, survey_files: list[Path],
-                   background: Path | None = None) -> bytes:
+def export_package(course_meta: dict, course_doc: dict, survey_files: list[tuple[str, bytes]],
+                   background: tuple[str, bytes] | None = None) -> bytes:
+    """survey_files and background are (filename, bytes) pairs."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         manifest = {"format": FORMAT, "course": course_meta,
-                    "surveys": [p.name for p in survey_files],
-                    "background": background.name if background else None}
+                    "surveys": [n for n, _ in survey_files],
+                    "background": background[0] if background else None}
         z.writestr("manifest.json", json.dumps(manifest, indent=2))
         z.writestr("course.json", json.dumps(course_doc, indent=1))
-        for p in survey_files:
-            if p.exists():
-                z.write(p, f"surveys/{p.name}")
-        if background and background.exists():
-            z.write(background, f"background/{background.name}")
+        for name, data in survey_files:
+            z.writestr(f"surveys/{name}", data)
+        if background:
+            z.writestr(f"background/{background[0]}", background[1])
     return buf.getvalue()
 
 

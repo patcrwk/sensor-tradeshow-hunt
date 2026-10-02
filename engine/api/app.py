@@ -10,7 +10,10 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+import secrets
+import time
+
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
@@ -22,8 +25,8 @@ from ..explorer.profiles import list_profiles
 from ..explorer.timeseries import window
 from ..hunt import scoring
 from ..hunt.crowd import crowd_stats
-from . import bus, services as S, watcher
-from .db import (AuditLog, Course, Participant, Recording, Run, Sensor, SurveyFile, Upload, audit,
+from . import auth, bus, services as S, storage, watcher
+from .db import (AuditLog, Course, Participant, Recording, Run, Scan, Sensor, SurveyFile, Upload, audit,
                  current_event, get_setting, now, session, set_setting)
 
 log = logging.getLogger("engine")
@@ -56,7 +59,39 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="BDAS Sensor Demo Engine", lifespan=lifespan)
+app.middleware("http")(auth.middleware)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+# -- staff login ----------------------------------------------------------------
+
+class Login(BaseModel):
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: Login, request: Request):
+    if not auth.required():
+        return {"staff": True, "required": False}
+    if not auth.check_password(body.password):
+        time.sleep(1.0)                          # slow down guessing
+        raise HTTPException(401, "wrong password")
+    resp = Response(json.dumps({"staff": True, "required": True}), media_type="application/json")
+    secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    resp.set_cookie(auth.COOKIE, auth.token(), max_age=14 * 24 * 3600, httponly=True, samesite="lax", secure=secure)
+    return resp
+
+
+@app.post("/api/auth/logout")
+def logout():
+    resp = Response(json.dumps({"staff": False}), media_type="application/json")
+    resp.delete_cookie(auth.COOKIE)
+    return resp
+
+
+@app.get("/api/auth/me")
+def me(request: Request):
+    return {"staff": auth.is_staff(request), "required": auth.required()}
 
 
 def _404(what="not found"):
@@ -237,7 +272,8 @@ def checkout(c: Checkout):
         s.add(p)
         s.commit()
         s.refresh(p)
-        r = Run(event_id=ev.id, participant_id=p.id, sensor_serial=c.serial.strip())
+        r = Run(event_id=ev.id, participant_id=p.id, sensor_serial=c.serial.strip(),
+                token=secrets.token_urlsafe(9))
         s.add(r)
         s.commit()
         s.refresh(r)
@@ -257,7 +293,7 @@ def _run_row(r: Run, p: Participant | None, private: bool = True) -> dict:
          "course_version": r.course_version, "elapsed_s": r.elapsed_s, "complete": r.complete,
          "positioning_mode": r.positioning_mode, "summary": r.summary, "error": r.error,
          "processed_at": r.processed_at, "published_at": r.published_at,
-         "has_overrides": bool(r.overrides)}
+         "has_overrides": bool(r.overrides), "token": r.token}
     if private and p:
         d["company"] = p.company
     return d
@@ -284,7 +320,20 @@ def run_detail(run_id: int):
         logs = s.exec(select(AuditLog).where(AuditLog.run_id == run_id).order_by(AuditLog.id)).all()
         up = s.get(Upload, r.upload_id) if r.upload_id else None
     return {"run": _run_row(r, p), "result": S.load_result(r), "overrides": r.overrides,
-            "audit": [a.model_dump() for a in logs], "upload": _upload_dict(up) if up else None}
+            "audit": [a.model_dump() for a in logs], "upload": _upload_dict(up) if up else None,
+            "scans": S.run_scans(run_id)}
+
+
+@app.get("/api/runs/{run_id}/public")
+def run_public(run_id: int):
+    """What the big screen needs about a finisher: no company, email or token."""
+    with session() as s:
+        r = s.get(Run, run_id)
+        p = s.get(Participant, r.participant_id) if r else None
+    if not r or r.status != "published":
+        _404()
+    return {"run": {"id": r.id, "name": p.display_name if p else "?", "status": r.status, "elapsed_s": r.elapsed_s,
+                    "complete": r.complete, "summary": r.summary}}
 
 
 class Attach(BaseModel):
@@ -425,9 +474,107 @@ def courses():
 
 
 @app.get("/api/courses/active")
-def course_active():
+def course_active(request: Request):
     c = S.active_course()
-    return _course_dict(c) if c else None
+    if not c:
+        return None
+    d = _course_dict(c)
+    if not auth.is_staff(request) and d.get("data"):
+        d["data"] = {k: v for k, v in d["data"].items() if k != "qr_codes"}   # codes stay on the printed signs
+        d.pop("surveys", None)
+    return d
+
+
+# -- QR check-ins (participant phones) ------------------------------------------
+
+def _station_for_code(code: str):
+    """Find the station a QR code belongs to, in the active course."""
+    c = S.active_course()
+    if not c or not c.data:
+        return None, None
+    for sid, cc in (c.data.get("qr_codes") or {}).items():
+        if secrets.compare_digest(cc, code):
+            if sid == "BOOTH":
+                return c, {"id": "BOOTH", "name": "Start and finish", "number": 0}
+            st = next((s for s in c.data["stations"] if s["id"] == sid), None)
+            return c, st
+    return c, None
+
+
+@app.get("/api/qr/station/{code}")
+def qr_station(code: str):
+    c, st = _station_for_code(code)
+    if not st:
+        _404("this code does not belong to the current course")
+    return {"station": {"id": st["id"], "name": st["name"], "number": st["number"]},
+            "total": len(c.data["stations"]), "event": get_setting("branding", {}).get("event_name")}
+
+
+class ScanBody(BaseModel):
+    token: str
+    code: str
+
+
+@app.post("/api/qr/scan")
+def qr_scan(body: ScanBody):
+    c, st = _station_for_code(body.code)
+    if not st:
+        raise HTTPException(404, "this code does not belong to the current course")
+    with session() as s:
+        run = s.exec(select(Run).where(Run.token == body.token)).first()
+        if not run or run.event_id != current_event().id:
+            raise HTTPException(404, "your hunt link was not found; ask at the booth")
+        last = s.exec(select(Scan).where(Scan.run_id == run.id, Scan.station == st["id"])
+                      .order_by(Scan.at.desc())).first()
+        duplicate = last is not None and time.time() - last.at < 120
+        if not duplicate:
+            s.add(Scan(run_id=run.id, course_id=c.id, station=st["id"]))
+            s.commit()
+        upload_id = run.upload_id
+    if not duplicate:
+        bus.publish("scan", {"run_id": run.id})
+        if upload_id:                               # late scan after the sensor came back: rescore
+            S.POOL.submit(S._process_safe, run.id)
+    return {"station": {"id": st["id"], "name": st["name"], "number": st["number"]}, "duplicate": duplicate,
+            "scans": S.run_scans(run.id), "total": len(c.data["stations"])}
+
+
+@app.get("/api/p/{token}")
+def participant(token: str):
+    """A participant's own page: progress while out, results once published."""
+    with session() as s:
+        run = s.exec(select(Run).where(Run.token == token)).first()
+        p = s.get(Participant, run.participant_id) if run else None
+    if not run:
+        _404("hunt link not found")
+    c = S.active_course() if not run.course_id else None
+    if run.course_id:
+        with session() as s:
+            c = s.get(Course, run.course_id)
+    course = None
+    if c and c.data:
+        d = c.data
+        course = {"id": c.id, "stations": [{k: st[k] for k in ("id", "name", "number", "x", "y", "required") if k in st}
+                                           for st in d["stations"]],
+                  "booth": d["booth"], "route": d.get("route"), "background": d.get("background"),
+                  "par_s": d.get("par", {}).get("par_time_s"),
+                  "uses_qr": "qr" in (d.get("identity_methods") or [])}
+    out = {"name": p.display_name if p else "", "status": run.status, "course": course,
+           "scans": S.run_scans(run.id), "result": None}
+    if run.status == "published":
+        res = S.load_result(run) or {}
+        lb = scoring.leaderboard(_published_rows(), "fastest", 1000)
+        rank = next((x["rank"] for x in lb if x["run_id"] == run.id), None)
+        out["result"] = {
+            "elapsed_s": res.get("elapsed_s"), "complete": res.get("complete"), "rank": rank, "of": len(lb),
+            "summary": run.summary, "metrics": {k: v for k, v in (res.get("metrics") or {}).items() if k != "env_samples"},
+            "legs": res.get("legs"), "route": res.get("route"), "positioning_mode": res.get("positioning_mode"),
+            "start": res.get("start"), "finish": res.get("finish"),
+            "checkins": [{"station": ci.get("station"), "station_name": ci.get("station_name"),
+                          "rest_start": ci["rest_start"], "duration": ci.get("duration")}
+                         for ci in res.get("checkins", [])],
+        }
+    return out
 
 
 @app.post("/api/courses/survey")
@@ -510,9 +657,12 @@ def get_background(course_id: int):
     with session() as s:
         c = s.get(Course, course_id)
     bg = (c.data or {}).get("background") if c else None
-    if not bg or not Path(bg["path"]).exists():
+    data = storage.get(bg.get("key") or bg.get("path")) if bg else None
+    if data is None:
         _404()
-    return FileResponse(bg["path"])
+    import mimetypes
+    return Response(data, media_type=mimetypes.guess_type(bg.get("filename") or "x.png")[0] or "image/png",
+                    headers={"Cache-Control": "public, max-age=300"})
 
 
 class Pins(BaseModel):
@@ -537,9 +687,14 @@ def export_course(course_id: int):
         ups = [s.get(Upload, f.upload_id) for f in files]
     if not c:
         _404()
-    bg = Path(c.data["background"]["path"]) if c.data and c.data.get("background") else None
+    surveys = [(Path(u.path).name, storage.get(u.path)) for u in ups if u]
+    bgdoc = (c.data or {}).get("background")
+    bg = None
+    if bgdoc:
+        bgkey = bgdoc.get("key") or bgdoc.get("path")
+        bg = (Path(bgkey).name, storage.get(bgkey))
     data = export_package({"name": c.name, "version": c.version, "status": c.status}, c.data or {},
-                          [Path(u.path) for u in ups], bg)
+                          [(n, b) for n, b in surveys if b is not None], bg if bg and bg[1] else None)
     fname = f"course_{c.name.replace(' ', '_')}_v{c.version}.zip"
     return Response(data, media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})

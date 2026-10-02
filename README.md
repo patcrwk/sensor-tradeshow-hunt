@@ -30,6 +30,8 @@ Requirements: Python 3.12 or newer (developed and tested on 3.14), Node 20+.
 | Recording Explorer | `/explorer` | Demo Library and upload; Overview, Time Series, Frequency, Shock and Events, Environment, Motion and Location, Story. |
 | Admin | `/admin` | Branding, kiosk rotation, active course, watch folder, auto-publish, lead export, event reset, synthetic test data, audit log. |
 | Beacon | `/beacon/<station>` | Plays a station's vibration beacon tone (optional identity method). |
+| Participant | `/p/<token>`, `/s/<code>` | Phone pages: the personal link from the check-out QR (progress and results), and what a station's QR sign opens (records a check-in). |
+| Login | `/login` | Staff login, when `STAFF_PASSWORD` is set (hosted mode). |
 
 ## Repository layout
 

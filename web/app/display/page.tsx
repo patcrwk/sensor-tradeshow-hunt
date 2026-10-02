@@ -37,7 +37,7 @@ export default function Display() {
   useEvents(async (m) => {
     if (m.kind === "run" && m.status === "published") {
       try {
-        const r = await api(`/api/runs/${m.run_id}`);
+        const r = await api(`/api/runs/${m.run_id}/public`);
         const lb = await api(`/api/leaderboard?category=fastest&limit=100`);
         const rank = lb.rows.find((x: any) => x.run_id === m.run_id)?.rank;
         setFlash({ ...r.run, rank });

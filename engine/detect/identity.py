@@ -15,7 +15,8 @@ from .taps import label_rest
 BOOTH = "BOOTH"
 
 
-def identify_rest(b: Bundle, rest: Rest, course: dict, tap_groups: list[dict], cfg=None) -> dict:
+def identify_rest(b: Bundle, rest: Rest, course: dict, tap_groups: list[dict], cfg=None,
+                  extra: dict | None = None) -> dict:
     """Return {station, status, methods: [...], confidence, match_distance_m, ...}.
 
     status: "matched", "review" (methods disagree), "stray" (no station),
@@ -41,6 +42,9 @@ def identify_rest(b: Bundle, rest: Rest, course: dict, tap_groups: list[dict], c
             r = label_rest(rest.start, tap_groups, cfg)
             r["station"] = next((s["id"] for s in cands if s.get("tap_count") and s["tap_count"] == r["count"]), None)
             results.append(r)
+        elif m == "qr":
+            results.append((extra or {}).get("qr") or {"method": "qr", "station": None, "available": False,
+                                                        "detail": "no scan near this rest"})
         elif m == "beacon":
             r = detect_beacon(b, rest.start, rest.end, cfg)
             r["station"] = next((s["id"] for s in cands if s.get("beacon_hz") and r.get("freq_hz")

@@ -249,7 +249,17 @@ def finalize(course: dict, cfg=None) -> dict:
     if "identity_methods" not in course:
         course["identity_methods"] = default_methods(course, cfg)
     course["warnings"] = spacing_warnings(course, cfg)
+    ensure_qr_codes(course)
     return course
+
+
+def ensure_qr_codes(course: dict) -> dict:
+    """One unguessable code per station plus the booth. Kept once created, so printed signs stay valid."""
+    import secrets
+    codes = course.setdefault("qr_codes", {})
+    for sid in ["BOOTH"] + [s["id"] for s in course["stations"]]:
+        codes.setdefault(sid, secrets.token_urlsafe(6))
+    return codes
 
 
 def default_methods(course: dict, cfg=None) -> list[str]:
@@ -304,5 +314,6 @@ def runtime_course(course: dict) -> dict:
         "positioning_mode": course.get("positioning_mode", "gps"),
         "order_rule": course.get("order_rule", "any"), "legs": course.get("legs", []),
         "par_time_s": course.get("par", {}).get("par_time_s"),
+        "qr_codes": course.get("qr_codes", {}),
         "route": course.get("route"),
     }

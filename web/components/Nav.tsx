@@ -1,24 +1,29 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { api } from "@/lib/api";
+import { useAuth } from "./BrandProvider";
 import Wordmark from "./Wordmark";
 
 const ITEMS = [
-  { href: "/display", label: "Display" },
-  { href: "/hunt", label: "Hunt" },
-  { href: "/course", label: "Course Setup" },
-  { href: "/explorer", label: "Recording Explorer" },
-  { href: "/admin", label: "Admin" },
+  { href: "/display", label: "Display", staff: false },
+  { href: "/hunt", label: "Hunt", staff: true },
+  { href: "/course", label: "Course Setup", staff: true },
+  { href: "/explorer", label: "Recording Explorer", staff: false },
+  { href: "/admin", label: "Admin", staff: true },
 ];
 
 export default function Nav() {
   const path = usePathname();
+  const { auth, isStaff, reloadAuth } = useAuth();
+  const items = ITEMS.filter((i) => !i.staff || isStaff);
   return (
     <header className="border-b border-line bg-panel sticky top-0 z-30">
       <div className="mx-auto max-w-[1600px] px-4 flex items-center gap-6 h-14">
         <Link href="/" className="flex items-center"><Wordmark /></Link>
         <nav className="flex gap-1 overflow-x-auto">
-          {ITEMS.map((i) => {
+          {items.map((i) => {
             const on = path === i.href || path.startsWith(i.href + "/");
             return (
               <Link key={i.href} href={i.href}
@@ -28,12 +33,23 @@ export default function Nav() {
             );
           })}
         </nav>
+        {auth?.required && (
+          <div className="ml-auto">
+            {isStaff
+              ? <button className="text-sm text-muted hover:text-text" onClick={async () => { await api("/api/auth/logout", { method: "POST" }); reloadAuth(); }}>Staff log out</button>
+              : <Link href={`/login?next=${encodeURIComponent(path)}`} className="text-sm text-muted hover:text-text">Staff login</Link>}
+          </div>
+        )}
       </div>
     </header>
   );
 }
 
-export function Page({ title, actions, children, wide }: { title?: string; actions?: React.ReactNode; children: React.ReactNode; wide?: boolean }) {
+export function Page({ title, actions, children, wide, staff }: { title?: string; actions?: React.ReactNode; children: React.ReactNode; wide?: boolean; staff?: boolean }) {
+  const { auth, isStaff } = useAuth();
+  if (staff && auth && !isStaff) {
+    return <><Nav /><main className="mx-auto max-w-md px-4 py-16"><LoginForm /></main></>;
+  }
   return (
     <>
       <Nav />
@@ -47,6 +63,32 @@ export function Page({ title, actions, children, wide }: { title?: string; actio
         {children}
       </main>
     </>
+  );
+}
+
+export function LoginForm({ onDone }: { onDone?: () => void }) {
+  const { reloadAuth } = useAuth();
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <form className="card p-6 space-y-4" onSubmit={async (e) => {
+      e.preventDefault();
+      setBusy(true); setErr(null);
+      try {
+        await api("/api/auth/login", { json: { password: pw } });
+        reloadAuth();
+        if (onDone) onDone(); else window.location.reload();   // re-run the page's data requests
+      }
+      catch { setErr("That password is not right."); }
+      finally { setBusy(false); }
+    }}>
+      <h1 className="text-2xl font-bold">Staff login</h1>
+      <p className="text-muted text-sm">Hunt, Course Setup and Admin are for booth staff.</p>
+      <input className="input text-lg" type="password" autoFocus placeholder="Staff password" value={pw} onChange={(e) => setPw(e.target.value)} />
+      <button className="btn btn-primary" disabled={!pw || busy}>{busy ? "Checking..." : "Log in"}</button>
+      <ErrorBox error={err} />
+    </form>
   );
 }
 

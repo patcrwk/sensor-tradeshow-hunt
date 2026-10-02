@@ -36,7 +36,7 @@ export default function Courses() {
   };
 
   return (
-    <Page title="Course Setup" actions={
+    <Page staff title="Course Setup" actions={
       <label className="btn">Import course package<input type="file" accept=".zip" className="hidden" onChange={(e) => e.target.files?.[0] && importPkg(e.target.files[0])} /></label>
     }>
       <div className="grid lg:grid-cols-[2fr_3fr] gap-6">

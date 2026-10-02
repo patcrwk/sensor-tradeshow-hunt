@@ -15,6 +15,13 @@ if ! command -v node >/dev/null 2>&1 || [ ! -f web/.next/standalone/server.js ];
   exit 1
 fi
 
+if [ -z "${STAFF_PASSWORD:-}" ]; then
+  echo "WARNING: STAFF_PASSWORD is not set. Admin, Hunt, Course Setup and the leads CSV are open to anyone." >&2
+fi
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "WARNING: DATABASE_URL is not set. Data is kept on the dyno disk and is lost on every restart." >&2
+fi
+
 # Exactly one engine process: live updates and background processing live in
 # that process, and SQLite must not be initialised by two workers at once.
 # (Heroku's Python buildpack sets WEB_CONCURRENCY, which uvicorn would obey.)

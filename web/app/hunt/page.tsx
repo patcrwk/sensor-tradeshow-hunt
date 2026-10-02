@@ -3,13 +3,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { ErrorBox, Page, StatusPill, Tabs } from "@/components/Nav";
 import Leaderboard from "@/components/Leaderboard";
+import QrCode, { originUrl } from "@/components/QrCode";
 import { api, upload, useApi } from "@/lib/api";
 import { fmtAgo, fmtClock, fmtTime, MODE_LABEL } from "@/lib/format";
 
 export default function HuntPage() {
   const [tab, setTab] = useState("checkout");
   return (
-    <Page title="Hunt" wide>
+    <Page staff title="Hunt" wide>
       <Tabs value={tab} onChange={setTab} tabs={[
         { id: "checkout", label: "Check-out" }, { id: "returns", label: "Returns" },
         { id: "runs", label: "Runs" }, { id: "boards", label: "Leaderboards" },
@@ -30,7 +31,10 @@ function Checkout() {
   const [email, setEmail] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [joinFor, setJoinFor] = useState<any | null>(null);
   const sensors = useApi<any[]>("/api/sensors", ["run"]);
+  const active = useApi<any>("/api/courses/active", ["course"]);
+  const usesQr = active.data?.data?.identity_methods?.includes("qr");
   const status = useApi<any>(serial ? `/api/sensors/${encodeURIComponent(serial)}/status` : null);
   const open = useApi<any[]>("/api/runs?status=out", ["run", "reset"]);
 
@@ -41,6 +45,7 @@ function Checkout() {
       const r = await api("/api/runs/checkout", { json: { display_name: name, serial, consent, company, email } });
       setMsg(`${r.run.name} is out with sensor ${r.run.serial}.${r.warning ? " Note: " + r.warning : ""}`);
       setName(""); setSerial(""); setConsent(false); setCompany(""); setEmail("");
+      setJoinFor(r.run);
       open.reload();
     } catch (ex: any) { setErr(ex.message); }
   };
@@ -84,6 +89,21 @@ function Checkout() {
           the same way at the booth marker.
         </div>
       </form>
+      <div className="space-y-6">
+      {joinFor?.token && (
+        <div className="card p-6 border-brand flex gap-6 items-center flex-wrap">
+          <QrCode text={originUrl(`/p/${joinFor.token}`)} size={240} />
+          <div className="flex-1 min-w-[220px]">
+            <div className="label">For {joinFor.name}</div>
+            <div className="text-2xl font-bold mt-1">Scan this with your phone camera</div>
+            <p className="text-muted mt-2">
+              It opens your hunt page: your progress while you play and your results when you get back.
+              {usesQr ? " At each station, scan the station's code, then set the sensor down for 10 seconds." : ""}
+            </p>
+            <button className="btn text-sm mt-3" onClick={() => setJoinFor(null)}>Done</button>
+          </div>
+        </div>
+      )}
       <div className="card p-6">
         <h2 className="text-xl font-bold mb-3">Out on the course ({open.data?.length ?? 0})</h2>
         <table className="grid-table">
@@ -94,7 +114,8 @@ function Checkout() {
                 <td className="font-semibold">{r.name}</td>
                 <td className="tabular">{r.serial}</td>
                 <td>{fmtClock(r.checkout_epoch)} <span className="text-muted text-sm">({fmtAgo(r.checkout_epoch)})</span></td>
-                <td className="text-right">
+                <td className="text-right whitespace-nowrap">
+                  {r.token && <button className="btn text-sm mr-2" onClick={() => setJoinFor(r)}>Phone QR</button>}
                   <button className="btn btn-danger text-sm" onClick={async () => {
                     if (confirm(`Cancel the check-out for ${r.name}?`)) { await api(`/api/runs/${r.id}`, { method: "DELETE" }); open.reload(); }
                   }}>Cancel</button>
@@ -103,6 +124,7 @@ function Checkout() {
             ))}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );

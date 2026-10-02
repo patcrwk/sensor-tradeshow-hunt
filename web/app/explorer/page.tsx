@@ -4,11 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ErrorBox, Page, StatusPill } from "@/components/Nav";
 import { upload, useApi } from "@/lib/api";
+import { useAuth } from "@/components/BrandProvider";
 import { fmtTime } from "@/lib/format";
 
 export default function Explorer() {
   const router = useRouter();
   const recs = useApi<any[]>("/api/recordings", ["recording"]);
+  const { isStaff } = useAuth();
   const profiles = useApi<any[]>("/api/profiles");
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
@@ -39,7 +41,7 @@ export default function Explorer() {
         {library.map((r) => <RecCard key={r.id} r={r} />)}
         {!library.length && <div className="text-muted">The library is empty. The drone flight loads automatically when fixtures/Drone_Flight.IDE is present.</div>}
       </div>
-      <div className="grid lg:grid-cols-2 gap-6">
+      {isStaff && <div className="grid lg:grid-cols-2 gap-6">
         <div className="card p-6 space-y-3">
           <h2 className="text-xl font-bold">Open a recording</h2>
           <div className={`border-2 border-dashed rounded-lg p-6 text-center ${file ? "border-brand" : "border-line"}`}
@@ -66,7 +68,7 @@ export default function Explorer() {
           ))}
           {!others.length && <div className="text-muted">None yet.</div>}
         </div>
-      </div>
+      </div>}
     </Page>
   );
 }

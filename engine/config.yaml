@@ -76,6 +76,11 @@ floors:
   level_change_m: 2.5
   smooth_s: 5.0
 
+qr:
+  scan_before_rest_s: 90.0       # a scan may come up to this long before the rest starts
+  scan_after_rest_s: 45.0        # or this long after it ends
+  max_clock_skew_s: 900.0        # search this far for the sensor-vs-server clock offset
+
 course:
   min_station_separation_m: 15.0
   default_detour_factor: 1.3

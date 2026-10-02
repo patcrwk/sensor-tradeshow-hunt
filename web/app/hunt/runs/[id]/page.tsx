@@ -14,13 +14,13 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
   const [ghostVs, setGhostVs] = useState<"" | "leader" | "crew">("");
   const ghost = useApi<any>(ghostVs ? `/api/runs/${id}/ghost?vs=${ghostVs}` : null);
 
-  if (error) return <Page title="Run"><ErrorBox error={error} /></Page>;
-  if (!data) return <Page title="Run">Loading...</Page>;
+  if (error) return <Page staff title="Run"><ErrorBox error={error} /></Page>;
+  if (!data) return <Page staff title="Run">Loading...</Page>;
   const { run, result: res } = data;
   const cd = course.data?.data;
 
   return (
-    <Page wide title={`${run.name}`} actions={
+    <Page staff wide title={`${run.name}`} actions={
       <>
         <StatusPill status={run.status} />
         {run.status === "published"
@@ -79,6 +79,21 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
             </div>
           </div>
 
+          {data.scans?.length > 0 && (
+            <div className="card p-4">
+              <h2 className="text-xl font-bold mb-2">Phone QR scans</h2>
+              <div className="flex flex-wrap gap-2">
+                {data.scans.map((s: any, i: number) => (
+                  <span key={i} className="pill text-sm">{new Date(s.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })} {s.station_name}</span>
+                ))}
+              </div>
+              {res.qr && <div className="text-sm text-muted mt-2">
+                {res.qr.matched} of {data.scans.length} scans paired with a sensor rest
+                {res.qr.offset_s != null ? `; sensor clock differs from the server by about ${Math.abs(res.qr.offset_s).toFixed(0)} s` : ""}.
+                {res.qr.unmatched_scans?.length ? ` Unpaired: ${res.qr.unmatched_scans.join(", ")} (no rest near that scan).` : ""}
+              </div>}
+            </div>
+          )}
           <CheckinReview runId={+id} res={res} cd={cd} overrides={data.overrides} onSaved={reload} />
           <SensorView res={res} />
           {data.audit?.length > 0 && (

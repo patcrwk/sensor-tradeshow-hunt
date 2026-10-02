@@ -6,6 +6,7 @@ import ReplayScene from "@/components/ReplayScene";
 import { ErrorBox, Page, Stat, StatusPill, Tabs } from "@/components/Nav";
 import UPlotChart, { PALETTE } from "@/components/UPlotChart";
 import { api, useApi } from "@/lib/api";
+import { useAuth } from "@/components/BrandProvider";
 import { fmtTime } from "@/lib/format";
 
 const TAB_LABEL: Record<string, string> = {
@@ -48,6 +49,8 @@ export default function RecordingPage({ params }: { params: Promise<{ id: string
 
 function ProfilePicker({ rec, onChange }: { rec: any; onChange: () => void }) {
   const profiles = useApi<any[]>("/api/profiles");
+  const { isStaff } = useAuth();
+  if (!isStaff) return null;
   return (
     <div className="flex gap-2 items-center">
       <select className="input w-44" value={rec.profile} onChange={async (e) => { await api(`/api/recordings/${rec.id}`, { method: "PATCH", json: { profile: e.target.value } }); onChange(); }}>
@@ -306,6 +309,7 @@ function GpsTrack({ g, colorBy }: { g: any; colorBy: string }) {
 }
 
 function Story({ rec, st, onSaved }: { rec: any; st: any; onSaved: () => void }) {
+  const { isStaff } = useAuth();
   const [anns, setAnns] = useState<any[]>(rec.annotations || []);
   const [t, setT] = useState("");
   const [title, setTitle] = useState("");
@@ -332,7 +336,7 @@ function Story({ rec, st, onSaved }: { rec: any; st: any; onSaved: () => void })
           <div key={i} className="card p-4"><div className="text-xl font-bold">{h.title}</div><div className="text-muted">{h.detail}</div>
             {h.source?.method && <div className="text-xs text-muted mt-1">source: {h.source.method}</div>}</div>
         ))}
-        <div className="card p-4 space-y-2">
+        {isStaff && <div className="card p-4 space-y-2">
           <div className="label">Curated annotations</div>
           {anns.map((a, i) => <div key={i} className="flex justify-between text-sm"><span>{a.t != null ? fmtTime(a.t, 0) + " " : ""}{a.title}</span>
             <button className="text-bad" onClick={() => save(anns.filter((_, j) => j !== i))}>remove</button></div>)}
@@ -342,7 +346,7 @@ function Story({ rec, st, onSaved }: { rec: any; st: any; onSaved: () => void })
           </div>
           <input className="input" placeholder="Detail" value={detail} onChange={(e) => setDetail(e.target.value)} />
           <button className="btn" disabled={!title} onClick={() => { save([...anns, { t: t === "" ? null : +t, title, detail }]); setT(""); setTitle(""); setDetail(""); }}>Add annotation</button>
-        </div>
+        </div>}
       </div>
     </div>
   );

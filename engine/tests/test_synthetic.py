@@ -124,3 +124,31 @@ def test_image_fit():
     assert t["kind"] == "similarity"
     u, v = apply(fit(pins)["matrix"], 10, 10)
     assert abs(u - 150) < 1e-6 and abs(v - 150) < 1e-6
+
+
+@pytest.mark.parametrize("skew", [0.0, 240.0, -420.0])
+def test_qr_checkins_no_gps(tmp_path, skew):
+    """No GPS, no holders: phone scans identify stations; the sensor rest proves the stop.
+    The sensor clock is off by `skew` seconds and must still line up."""
+    import numpy as np
+    sv = _survey(tmp_path, "none")
+    course = derive_course([sv])
+    course["identity_methods"] = ["qr"]
+    rc = runtime_course(course)
+    rng = np.random.default_rng(3)
+    for b in _runs(tmp_path, "none", n=2):
+        gt = b.ground_truth()
+        start = b.meta["start_epoch"]
+        scans = []
+        for r in gt["rests"]:
+            if r["kind"] == "stray":
+                continue                                       # nobody scans at a stray stop
+            sid = "BOOTH" if r["label"] in ("START", "FINISH") else f"S{r['label']}"
+            # scan a few seconds before setting the sensor down; server clock differs from sensor clock
+            scans.append({"station": sid, "at": start + r["start"] - rng.uniform(3, 40) - skew})
+        res = process_run(b, rc, scans=scans)
+        acc = checkin_accuracy(res, gt)
+        assert acc["correct"] == acc["true_station_rests"] and acc["false"] == 0, acc
+        assert abs(res["qr"]["offset_s"] - skew) < 45
+        assert res["complete"] and not res["needs_review"]
+        assert len(res["strays"]) == 1                          # the unscanned stop stays a stray

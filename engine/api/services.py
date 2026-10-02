@@ -22,8 +22,8 @@ from ..hunt.validation import process_run
 from ..io.bundle import Bundle, open_bundle
 from ..io.ide_reader import ide_to_bundle, sha256_file
 from ..synthetic.generator import unzip_bundle
-from . import bus
-from .db import (AuditLog, Course, Participant, Recording, Run, Sensor, SurveyFile, Upload, audit,
+from . import bus, storage
+from .db import (AuditLog, Course, Participant, Recording, Run, Scan, Sensor, SurveyFile, Upload, audit,
                  current_event, get_setting, now, session, set_setting)
 
 log = logging.getLogger("engine")
@@ -33,7 +33,7 @@ _ingest_lock = threading.Lock()
 
 def dirs() -> dict[str, Path]:
     d = data_dir()
-    out = {k: d / k for k in ("uploads", "bundles", "results", "analysis", "backgrounds")}
+    out = {k: d / k for k in ("uploads", "bundles")}     # local caches; durable data goes through storage
     for p in out.values():
         p.mkdir(parents=True, exist_ok=True)
     return out
@@ -59,21 +59,17 @@ def ingest_file(path: Path, filename: str | None = None, source_path: str | None
             existing = s.exec(select(Upload).where(Upload.sha256 == sha)).first()
             if existing and existing.status == "parsed":
                 return existing
-        ext = ".synth.zip" if filename.lower().endswith(".zip") else Path(filename).suffix.lower() or ".ide"
-        stored = dirs()["uploads"] / f"{sha[:16]}{ext}"
-        if not stored.exists():
-            shutil.copyfile(path, stored)
-        bdir = dirs()["bundles"] / sha[:16]
-        up = existing or Upload(sha256=sha, filename=filename, size=stored.stat().st_size, path=str(stored),
+        ext = _ext(filename)
+        key = f"upload/{sha[:16]}{ext}"
+        if not storage.exists(key):
+            storage.put(key, path.read_bytes())       # the original is what survives restarts
+        up = existing or Upload(sha256=sha, filename=filename, size=path.stat().st_size, path=key,
                                 source_path=source_path)
+        up.path = key
         try:
-            if ext == ".synth.zip":
-                unzip_bundle(stored.read_bytes(), bdir)
-                b = open_bundle(bdir)
-            else:
-                b = ide_to_bundle(stored, bdir, file_hash=sha)
+            b = _build_bundle(key, sha)
             m = b.meta
-            up.bundle_dir = str(bdir)
+            up.bundle_dir = sha[:16]
             up.status = "parsed"
             up.error = None
             up.serial = str(m["device"].get("serial")) if m["device"].get("serial") is not None else None
@@ -100,17 +96,40 @@ def ingest_file(path: Path, filename: str | None = None, source_path: str | None
     return up
 
 
+def _ext(filename: str) -> str:
+    return ".synth.zip" if filename.lower().endswith(".zip") else Path(filename).suffix.lower() or ".ide"
+
+
+def _build_bundle(key: str, sha: str) -> Bundle:
+    """Parse the stored original into the local bundle cache."""
+    bdir = dirs()["bundles"] / sha[:16]
+    if key.endswith(".synth.zip"):
+        unzip_bundle(storage.get(key), bdir)
+        return open_bundle(bdir)
+    local = storage.to_local(key, dirs()["uploads"] / Path(key).name) if not key.startswith("/") else Path(key)
+    return ide_to_bundle(local, bdir, file_hash=sha)
+
+
 def bundle_for(upload_id: int) -> Bundle:
     with session() as s:
         up = s.get(Upload, upload_id)
     if not up or up.status != "parsed":
         raise ValueError("upload not parsed")
-    return _bundle(up.bundle_dir)
+    return _bundle(up.sha256, up.path)
+
+
+_bundle_lock = threading.Lock()
 
 
 @lru_cache(maxsize=6)
-def _bundle(path: str) -> Bundle:
-    return open_bundle(path)
+def _bundle(sha: str, key: str) -> Bundle:
+    bdir = dirs()["bundles"] / sha[:16]
+    if not (bdir / "meta.json").exists():
+        with _bundle_lock:                          # cache wiped (Heroku restart): rebuild once
+            if not (bdir / "meta.json").exists():
+                log.info("rebuilding cached bundle %s from stored original", sha[:16])
+                _build_bundle(key, sha)
+    return open_bundle(bdir)
 
 
 def upload_candidates(up: Upload) -> list[dict]:
@@ -179,15 +198,14 @@ def process(run_id: int, course_id: int | None = None) -> Run:
         course_row = active_course()
     course_doc = runtime_course(course_row.data) if course_row and course_row.data else None
     b = bundle_for(run.upload_id)
-    res = process_run(b, course_doc, get_config(), overrides=run.overrides)
+    res = process_run(b, course_doc, get_config(), overrides=run.overrides, scans=run_scans(run_id, course_doc))
     res["course"] = {"id": course_row.id, "name": course_row.name, "version": course_row.version} if course_row else None
-    path = dirs()["results"] / f"run_{run_id}.json"
-    path.write_text(json.dumps(res, default=str))
+    key = storage.put_json(f"result/run_{run_id}.json", res)
     summ = summarize(res, course_doc)
     auto = get_setting("auto_publish", True)
     with session() as s:
         run = s.get(Run, run_id)
-        run.result_path = str(path)
+        run.result_path = key
         run.summary = summ
         run.elapsed_s = res["elapsed_s"]
         run.complete = bool(res["complete"])
@@ -213,10 +231,20 @@ def process(run_id: int, course_id: int | None = None) -> Run:
     return run
 
 
+def run_scans(run_id: int, course_doc: dict | None = None) -> list[dict]:
+    """QR scans for a run, with station names, oldest first."""
+    with session() as s:
+        rows = s.exec(select(Scan).where(Scan.run_id == run_id).order_by(Scan.at)).all()
+    if course_doc is None:
+        c = active_course()
+        course_doc = c.data if c and c.data else {}
+    names = {st["id"]: st["name"] for st in course_doc.get("stations", [])}
+    names["BOOTH"] = "Start and finish"
+    return [{"station": r.station, "station_name": names.get(r.station, r.station), "at": r.at} for r in rows]
+
+
 def load_result(run: Run) -> dict | None:
-    if not run.result_path or not Path(run.result_path).exists():
-        return None
-    return json.loads(Path(run.result_path).read_text())
+    return storage.get_json(run.result_path)
 
 
 def set_overrides(run_id: int, checkins: list[dict] | None, note: str) -> Run:
@@ -295,8 +323,11 @@ def derive(course_id: int, mode: str | None = None) -> Course:
         doc, status, err = None, "needs_review", f"{type(ex).__name__}: {ex}"
     with session() as s:
         c = s.get(Course, course_id)
-        if doc is not None and c.data and c.data.get("background"):
-            doc["background"] = c.data["background"]
+        if doc is not None and c.data:
+            if c.data.get("background"):
+                doc["background"] = c.data["background"]
+            if c.data.get("qr_codes"):                 # printed signs must keep working
+                doc["qr_codes"] = {**doc.get("qr_codes", {}), **c.data["qr_codes"]}
         c.data = doc
         c.status = status
         c.error = err
@@ -400,12 +431,11 @@ def new_version(course_id: int) -> Course:
 
 def set_background(course_id: int, filename: str, data: bytes) -> Course:
     ext = Path(filename).suffix.lower() or ".png"
-    p = dirs()["backgrounds"] / f"course_{course_id}{ext}"
-    p.write_bytes(data)
+    key = storage.put(f"background/course_{course_id}{ext}", data)
     with session() as s:
         c = s.get(Course, course_id)
         doc = json.loads(json.dumps(c.data))
-        doc["background"] = {"path": str(p), "filename": filename, "pins": [], "transform": None}
+        doc["background"] = {"key": key, "filename": filename, "pins": [], "transform": None}
         c.data = doc
         s.add(c)
         s.commit()
@@ -461,11 +491,12 @@ def _analyze_safe(rec_id: int) -> None:
         with session() as s:
             r = s.get(Recording, rec_id)
         b = bundle_for(r.upload_id)
-        path = dirs()["analysis"] / f"rec_{rec_id}.json"
-        analyze(b, r.profile, r.annotations, cache=path)
+        key = storage.put_json(f"analysis/rec_{rec_id}.json", analyze(b, r.profile, r.annotations))
+        for model in ("sensor", "quadcopter"):          # replay depends on the analysis
+            storage.delete(f"analysis/rec_{rec_id}_replay_{model}.json")
         with session() as s:
             r = s.get(Recording, rec_id)
-            r.status, r.analysis_path, r.error = "ready", str(path), None
+            r.status, r.analysis_path, r.error = "ready", key, None
             s.add(r)
             s.commit()
     except Exception as ex:
@@ -479,14 +510,7 @@ def _analyze_safe(rec_id: int) -> None:
 
 
 def recording_analysis(rec: Recording) -> dict | None:
-    if not rec.analysis_path or not Path(rec.analysis_path).exists():
-        return None
-    return _read_json(rec.analysis_path, Path(rec.analysis_path).stat().st_mtime)
-
-
-@lru_cache(maxsize=8)
-def _read_json(path: str, mtime: float) -> dict:
-    return json.loads(Path(path).read_text())
+    return storage.get_json(rec.analysis_path)
 
 
 def recording_replay(rec: Recording) -> dict:
@@ -494,11 +518,12 @@ def recording_replay(rec: Recording) -> dict:
     from ..explorer.profiles import get_profile
     from ..explorer.replay import build_replay
     model = get_profile(rec.profile).get("replay_model", "sensor")
-    path = dirs()["analysis"] / f"rec_{rec.id}_replay_{model}.json"
-    if path.exists():
-        return _read_json(str(path), path.stat().st_mtime)
+    key = f"analysis/rec_{rec.id}_replay_{model}.json"
+    cached = storage.get_json(key)
+    if cached is not None:
+        return cached
     r = build_replay(bundle_for(rec.upload_id), recording_analysis(rec), model)
-    path.write_text(json.dumps(r))
+    storage.put_json(key, r)
     return r
 
 
@@ -514,7 +539,7 @@ def update_recording(rec_id: int, patch: dict) -> Recording:
     if ("profile" in patch or "annotations" in patch) and r.analysis_path:
         a = recording_analysis(r)
         a = restory(bundle_for(r.upload_id), a, r.profile, r.annotations)
-        Path(r.analysis_path).write_text(json.dumps(a, default=str))
+        storage.put_json(r.analysis_path, a)
     bus.publish("recording", {"recording_id": rec_id})
     return r
 
@@ -547,8 +572,9 @@ def reset_event(new_name: str | None = None) -> None:
     with session() as s:
         runs = s.exec(select(Run).where(Run.event_id == ev.id)).all()
         for r in runs:
-            if r.result_path:
-                Path(r.result_path).unlink(missing_ok=True)
+            storage.delete(r.result_path)
+            for sc in s.exec(select(Scan).where(Scan.run_id == r.id)).all():
+                s.delete(sc)
             s.delete(r)
         for p in s.exec(select(Participant).where(Participant.event_id == ev.id)).all():
             s.delete(p)
@@ -559,9 +585,8 @@ def reset_event(new_name: str | None = None) -> None:
         keep |= {r.upload_id for r in s.exec(select(Recording)).all()}
         for up in s.exec(select(Upload)).all():
             if up.id not in keep:
-                if up.bundle_dir:
-                    shutil.rmtree(up.bundle_dir, ignore_errors=True)
-                Path(up.path).unlink(missing_ok=True)
+                shutil.rmtree(dirs()["bundles"] / up.sha256[:16], ignore_errors=True)
+                storage.delete(up.path)
                 s.delete(up)
         ev.active = False
         s.add(ev)

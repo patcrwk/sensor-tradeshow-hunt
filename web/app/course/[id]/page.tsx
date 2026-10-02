@@ -11,6 +11,7 @@ const METHODS = [
   { id: "orientation", label: "Holder orientation" },
   { id: "taps", label: "Tap code" },
   { id: "beacon", label: "Vibration beacon" },
+  { id: "qr", label: "QR code scans (participant phones)" },
 ];
 
 export default function CoursePage({ params }: { params: Promise<{ id: string }> }) {
@@ -26,13 +27,13 @@ export default function CoursePage({ params }: { params: Promise<{ id: string }>
     try { setData(await api(`/api/courses/${id}`, { method: "PATCH", json: body })); } catch (e: any) { setErr(e.message); }
   };
 
-  if (error) return <Page title="Course"><ErrorBox error={error} /></Page>;
-  if (!c) return <Page title="Course">Loading...</Page>;
+  if (error) return <Page staff title="Course"><ErrorBox error={error} /></Page>;
+  if (!c) return <Page staff title="Course">Loading...</Page>;
   const d = c.data;
   const editable = c.status !== "published" && c.status !== "archived";
 
   return (
-    <Page wide title={`${c.name} v${c.version}`} actions={
+    <Page staff wide title={`${c.name} v${c.version}`} actions={
       <>
         <StatusPill status={c.status} />
         {c.active && <span className="pill" style={{ color: "var(--good)", borderColor: "var(--good)" }}>active course</span>}
@@ -47,6 +48,7 @@ export default function CoursePage({ params }: { params: Promise<{ id: string }>
           } catch (e: any) { setErr(e.message); }
         }}>Publish</button>}
         {!editable && <button className="btn" onClick={async () => { const n = await api(`/api/courses/${id}/new-version`, { method: "POST" }); router.push(`/course/${n.id}`); }}>Edit as new version</button>}
+        {d?.qr_codes && <a className="btn" href={`/course/${id}/qr`} target="_blank">Print QR signs</a>}
         <a className="btn" href={`${apiBase()}/api/courses/${id}/export`}>Export package</a>
       </>}>
       <ErrorBox error={err || c.error} />
@@ -191,6 +193,7 @@ function RulesTab({ d, editable, patch, rederive }: { d: any; editable: boolean;
               onChange={(e) => patch({ identity_methods: e.target.checked ? [...d.identity_methods, m.id] : d.identity_methods.filter((x: string) => x !== m.id) })} />
             <span className="font-semibold">{m.label}</span>
             {m.id === "beacon" && <span className="text-xs text-muted">needs 1000 Hz accel; tone pages at /beacon/&lt;station&gt;</span>}
+            {m.id === "qr" && <span className="text-xs text-muted">phones scan the printed sign; the sensor rest still proves the stop</span>}
           </label>
         ))}
         <div>

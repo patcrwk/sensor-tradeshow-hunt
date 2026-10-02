@@ -1,19 +1,21 @@
-"""SQLite via SQLModel.
+"""Database via SQLModel: Postgres when DATABASE_URL is set (Heroku), else SQLite.
 
 Tables hold identity, status and summary numbers. Large derived documents
 (course geometry, run results, explorer analysis) are JSON: the course
-document lives in Course.data; run results and explorer analyses are cached
-files on disk referenced by path, so the UI never touches raw data.
+document lives in Course.data; run results, explorer analyses, original
+uploads and images go through storage.py (database blobs on Heroku, files
+on the booth laptop), so the UI never touches raw data.
 """
 from __future__ import annotations
 
 import json
+import os
 import time
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from sqlalchemy import Column
-from sqlalchemy.types import JSON
+from sqlalchemy import Column, inspect, text
+from sqlalchemy.types import JSON, LargeBinary
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from ..config import data_dir
@@ -95,6 +97,7 @@ class SurveyFile(SQLModel, table=True):
 class Run(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     event_id: int = Field(index=True)
+    token: Optional[str] = Field(default=None, index=True)   # participant phone link (QR)
     participant_id: int
     sensor_serial: str = Field(index=True)
     checkout_epoch: float = Field(default_factory=now)
@@ -111,6 +114,23 @@ class Run(SQLModel, table=True):
     error: Optional[str] = None
     processed_at: Optional[float] = None
     published_at: Optional[float] = None
+
+
+class Scan(SQLModel, table=True):
+    """A participant's phone scanned a station QR code."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    run_id: int = Field(index=True)
+    course_id: Optional[int] = None
+    station: str                   # station id, or BOOTH
+    at: float = Field(default_factory=now)   # server time (epoch seconds)
+
+
+class Blob(SQLModel, table=True):
+    """Binary storage for hosted mode (Heroku's disk is wiped on restart)."""
+    key: str = Field(primary_key=True)
+    data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    size: int = 0
+    created_at: float = Field(default_factory=now)
 
 
 class AuditLog(SQLModel, table=True):
@@ -137,13 +157,45 @@ class Recording(SQLModel, table=True):
     created_at: float = Field(default_factory=now)
 
 
+def database_url() -> str:
+    url = os.environ.get("DATABASE_URL", "")
+    if url.startswith("postgres://"):           # Heroku's form; SQLAlchemy wants postgresql+psycopg
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url or f"sqlite:///{data_dir() / 'demo.sqlite'}"
+
+
+def is_postgres() -> bool:
+    return database_url().startswith("postgresql")
+
+
 def engine():
     global _engine
     if _engine is None:
-        url = f"sqlite:///{data_dir() / 'demo.sqlite'}"
-        _engine = create_engine(url, connect_args={"check_same_thread": False})
+        url = database_url()
+        if url.startswith("sqlite"):
+            _engine = create_engine(url, connect_args={"check_same_thread": False})
+        else:
+            _engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
         SQLModel.metadata.create_all(_engine)
+        _add_missing_columns(_engine)
     return _engine
+
+
+def _add_missing_columns(eng) -> None:
+    """Tiny migration: add columns introduced after a database was created (all nullable)."""
+    insp = inspect(eng)
+    for table in SQLModel.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in have:
+                continue
+            ddl = col.type.compile(dialect=eng.dialect)
+            with eng.begin() as conn:
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl}'))
 
 
 def reset_engine():

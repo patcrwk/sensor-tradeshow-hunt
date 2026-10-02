@@ -34,6 +34,27 @@
 9. Publish. Export the package and keep it with the booth kit: the same venue
    next year can import it.
 
+## 2b. QR check-ins (GPS fallback, needs the hosted app)
+
+Use when GPS is poor in the hall and you do not want holders or tap codes.
+Participants scan a printed QR sign at each station with their phone camera;
+the sensor's 10 second rest still proves the stop.
+
+1. Course Setup > your course > Rules and identity: tick **QR code scans**.
+   (With GPS also ticked, both must agree.)
+2. Click **Print QR signs**: one page per station plus a START/FINISH sign for
+   the booth. Print once; the codes survive re-mapping and new versions of the
+   course. They only work while that course is the active one.
+3. At check-out, a **phone QR** appears for the participant. They scan it once:
+   it opens their personal hunt page and links their phone to their run.
+   ("Phone QR" in the Out on the course list shows it again.)
+4. At each station: scan the sign, then rest the sensor for 10 seconds.
+5. Scans are matched to the sensor's rests automatically, even if the sensor
+   clock is a few minutes off. The run page lists every scan and whether it
+   paired with a rest. A scan with no rest near it does not count.
+6. When the run is published, the participant's own page shows their time,
+   rank, route replay and splits.
+
 ## 3. Running the hunt
 
 **Check-out:** Hunt > Check-out. Enter the display name (shown on the big

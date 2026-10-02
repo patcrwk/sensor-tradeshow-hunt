@@ -1,8 +1,9 @@
-# Web mode (optional)
+# Web mode (Heroku)
 
-The same code can run on a server for remote viewing or a follow-up page. The
-booth laptop stays the primary system; read the limits below before relying on
-a hosted copy.
+The hunt can run entirely on Heroku: staff use it from the booth over the show
+Wi-Fi, and participants' phones reach it for QR check-ins and their results.
+The same code still runs offline on a booth laptop (no `DATABASE_URL`, no
+`STAFF_PASSWORD`).
 
 ## Heroku
 
@@ -23,19 +24,39 @@ heroku buildpacks:clear
 heroku buildpacks:add heroku/nodejs
 heroku buildpacks:add heroku/python
 heroku config:set ENGINE_INTERNAL_URL=http://127.0.0.1:8000 NEXT_PUBLIC_SAME_ORIGIN_API=1 MALLOC_ARENA_MAX=2
+heroku addons:create heroku-postgresql:essential-0
+heroku config:set STAFF_PASSWORD='choose-a-long-password'
 git push heroku main
 ```
 
 `ENGINE_INTERNAL_URL` and `NEXT_PUBLIC_SAME_ORIGIN_API` must be set **before**
 the build: they switch the web app into hosted mode at build time.
 
+### Data
+
+With the Postgres add-on (`DATABASE_URL`), everything persists across deploys
+and restarts: courses, participants, runs, QR scans, settings, the original
+uploaded recordings, run results, Explorer analyses and background images.
+Parsed recordings are cached on the dyno disk and rebuilt automatically from
+the stored original after a restart (the first view of each recording after a
+restart takes a few seconds).
+
+Storage size: each participant recording is a few MB. Essential-0 holds 1 GB,
+roughly 150 to 250 participants plus a course; use Essential-1 (10 GB) for a
+busy show or if you keep large Explorer files such as the 37 MB drone flight.
+Admin > Reset event deletes participant recordings and frees the space.
+
+### Staff login
+
+`STAFF_PASSWORD` locks Hunt, Course Setup, Admin and every staff API call
+(including the leads CSV and event reset). Staff log in once per browser
+("Staff login" in the top bar); the login lasts two weeks. Public without a
+login: the home page, `/display`, Recording Explorer (view only), participant
+pages (`/p/...`) and station scan pages (`/s/...`). The start script warns in
+`heroku logs` if the password or database is missing.
+
 ### Limits on Heroku
 
-- **Data does not persist.** Heroku's filesystem is wiped on every deploy and
-  dyno restart (at least daily). Courses, runs, uploads and settings live in
-  `data/` (SQLite and files) and will disappear. Re-import the course package
-  and re-upload recordings after a restart, or move storage to Heroku Postgres
-  and S3 (not built yet).
 - **Memory.** Parsing and analyzing a large recording (the 37 MB drone file)
   uses about 1.1 GB in the engine. Use a Standard-2X dyno at minimum, or
   Performance-M for large Explorer files. Hunt participant files are small.
@@ -56,12 +77,14 @@ the build: they switch the web app into hosted mode at build time.
   `NEXT_PUBLIC_API_URL` to the engine's public URL at build time, or use the
   same-origin setup above (`ENGINE_INTERNAL_URL` + `NEXT_PUBLIC_SAME_ORIGIN_API=1`).
 
-## Security (read before sharing a URL)
+## Security
 
-- **There is no login.** Anyone with the URL can use Hunt, Course Setup and
-  Admin, including **Reset event** and the **leads CSV** (participant emails).
-  Do not share a hosted URL until access control is added (for example a staff
-  password on everything except `/display` and the home page).
+- Set `STAFF_PASSWORD` before sharing the URL (see Staff login above). Without
+  it, anyone with the URL can reach Admin, the leads CSV and event reset.
+- Participant pages are reached only through the personal link in the
+  check-out QR code. Station QR codes are random per course and are not shown
+  on any public page; a scan only counts if it lines up with a real 10 second
+  sensor rest.
 - Only display names appear on public pages. Reset the event after the show to
-  delete GPS tracks.
+  delete GPS tracks and QR scans.
 - Online map tiles (OpenStreetMap) are not included; ask before adding them.

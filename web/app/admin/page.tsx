@@ -26,7 +26,7 @@ export default function Admin() {
   const health = useApi<any>("/api/health", [], 5000);
   const auditLog = useApi<any[]>("/api/admin/audit?limit=40", ["run", "course"]);
   useEffect(() => { if (settings && !s) setS(JSON.parse(JSON.stringify(settings))); }, [settings, s]);
-  if (!s) return <Page title="Admin">Loading...</Page>;
+  if (!s) return <Page staff title="Admin">Loading...</Page>;
 
   const save = async (patch: any) => {
     setErr(null); setMsg(null);
@@ -35,7 +35,7 @@ export default function Admin() {
   const b = s.branding, k = s.kiosk;
 
   return (
-    <Page title="Admin">
+    <Page staff title="Admin">
       {msg && <div className="text-good mb-3">{msg}</div>}
       <ErrorBox error={err} />
       <div className="grid lg:grid-cols-2 gap-6">
