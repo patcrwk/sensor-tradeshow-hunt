@@ -1,0 +1,2 @@
+# Heroku's Python buildpack looks for this file at the repo root.
+-r engine/requirements.txt

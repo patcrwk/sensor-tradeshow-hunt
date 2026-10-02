@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function apiBase(): string {
+  // Hosted mode: same origin, Next forwards /api to the engine
+  if (process.env.NEXT_PUBLIC_SAME_ORIGIN_API === "1") return "";
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
   if (typeof window === "undefined") return "http://127.0.0.1:8000";
   return `${window.location.protocol}//${window.location.hostname}:8000`;

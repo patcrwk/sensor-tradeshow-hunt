@@ -1,0 +1,11 @@
+{
+  "name": "bdas-sensor-demo",
+  "private": true,
+  "description": "Root manifest so Heroku's Node buildpack builds the web app in web/",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "build": "npm --prefix web ci --include=dev && npm --prefix web run build && bash bin/heroku-slim"
+  }
+}

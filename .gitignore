@@ -11,3 +11,4 @@ web/.env*.local
 *.parquet
 .DS_Store
 /fixtures/mock/
+.next-heroku/

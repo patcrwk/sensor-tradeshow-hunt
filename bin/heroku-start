@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Heroku: one dyno runs both services. The engine listens only inside the dyno;
+# Next serves $PORT and forwards /api/* to it (see web/next.config.ts).
+set -euo pipefail
+export PYTHONPATH="$PWD"
+export DATA_DIR="${DATA_DIR:-$PWD/data}"
+export ENGINE_PORT="${ENGINE_PORT:-8000}"
+
+python -m uvicorn engine.api.app:app --host 127.0.0.1 --port "$ENGINE_PORT" &
+engine_pid=$!
+
+# Wait for the engine before accepting traffic
+for _ in $(seq 1 60); do
+  if curl -fs "http://127.0.0.1:$ENGINE_PORT/api/health" >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+
+cd web/.next/standalone
+HOSTNAME=0.0.0.0 node server.js &
+web_pid=$!
+
+trap 'kill "$engine_pid" "$web_pid" 2>/dev/null || true' TERM INT
+# If either process exits, stop both so Heroku restarts the dyno
+while kill -0 "$engine_pid" 2>/dev/null && kill -0 "$web_pid" 2>/dev/null; do sleep 2; done
+kill "$engine_pid" "$web_pid" 2>/dev/null || true
+exit 1

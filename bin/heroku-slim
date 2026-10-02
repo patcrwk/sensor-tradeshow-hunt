@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# After the hosted build: assemble the standalone Next server and drop build-only
+# dependencies (the compiler alone is over 100 MB) to keep the Heroku slug small.
+set -euo pipefail
+cd web
+test -f .next/standalone/server.js || { echo "standalone build missing; is ENGINE_INTERNAL_URL set at build time?"; exit 1; }
+cp -R .next/static .next/standalone/.next/static
+[ -d public ] && cp -R public .next/standalone/public
+rm -rf node_modules
+echo "standalone server ready: $(du -sh .next/standalone | cut -f1)"
