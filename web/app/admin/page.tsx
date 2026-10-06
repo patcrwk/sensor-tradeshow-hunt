@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useSettings } from "@/components/BrandProvider";
 import { ErrorBox, Page } from "@/components/Nav";
 import { api, apiBase, useApi } from "@/lib/api";
+import QrCode, { originUrl } from "@/components/QrCode";
+import { DownloadQrButton, planSigns } from "@/components/SignSheet";
 
 const PANEL_OPTIONS = [
   ["join", "How to play (invites passers-by to join)"],
@@ -47,6 +49,14 @@ export default function Admin() {
             <Field label="Full company name" value={b.company_full || ""} onChange={(v) => setS({ ...s, branding: { ...b, company_full: v } })} />
           </div>
           <Field label="Tagline" value={b.tagline} onChange={(v) => setS({ ...s, branding: { ...b, tagline: v } })} />
+          <div className="pt-2 border-t border-line label">Printed signs</div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Booth" value={b.booth_label ?? "BOOTH 616"} onChange={(v) => setS({ ...s, branding: { ...b, booth_label: v } })} />
+            <Field label="Website" value={b.website ?? "www.bigduckappliedsciences.com"} onChange={(v) => setS({ ...s, branding: { ...b, website: v } })} />
+            <Field label="Start/finish called" value={b.home_term ?? "Home Base"} onChange={(v) => setS({ ...s, branding: { ...b, home_term: v } })} />
+            <Field label="Stations called" value={b.station_term ?? "Waypoint"} onChange={(v) => setS({ ...s, branding: { ...b, station_term: v } })} />
+          </div>
+          <Field label="Sign footer" value={b.sign_footer ?? "Join the scavenger hunt and see your own live telemetry!"} onChange={(v) => setS({ ...s, branding: { ...b, sign_footer: v } })} />
           <Field label="Logo URL (optional; put files in web/public and use /logo.png)" value={b.logo_url || ""} onChange={(v) => setS({ ...s, branding: { ...b, logo_url: v || null } })} />
           <div className="grid grid-cols-2 gap-3">
             <label><div className="label mb-1">Primary color</div><input type="color" className="w-full h-10" value={b.primary} onChange={(e) => setS({ ...s, branding: { ...b, primary: e.target.value } })} /></label>
@@ -104,6 +114,8 @@ export default function Admin() {
             {review.data?.map((r) => <div key={r.id}><Link className="text-brand" href={`/hunt/runs/${r.id}`}>{r.name}</Link> <span className="text-muted text-sm">{r.error || ""}</span></div>)}
           </div>
         </section>
+
+        <QrPrintBox activeId={s.active_course_id} />
 
         <section className="card p-5 space-y-3">
           <h2 className="text-xl font-bold">Leads and reset</h2>
@@ -171,6 +183,96 @@ function SynthBox() {
         finally { setBusy(false); }
       }}>{busy ? "Generating..." : "Generate files"}</button>
       {files.map((f) => <div key={f}><a className="text-brand text-sm" href={`${apiBase()}/api/admin/synthetic/${f.split("/").pop()}`}>{f.split("/").pop()}</a></div>)}
+    </section>
+  );
+}
+
+
+function QrPrintBox({ activeId }: { activeId: number | null }) {
+  const { data: plan, reload } = useApi<any>("/api/qr/plan", ["course"]);
+  const [count, setCount] = useState<string>("");
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!plan) return;
+    setCount((c) => (c === "" ? String(plan.count || 6) : c));
+    setNames((n) => ({ ...(plan.names || {}), ...n }));
+  }, [plan]);
+  const n = Math.max(0, Math.min(99, parseInt(count || "0") || 0));
+  const codes: Record<string, string> = plan?.codes || {};
+  const saved = plan && plan.count === n && Array.from({ length: n }, (_, k) => `S${k + 1}`).every((sid) => codes[sid])
+    && Object.entries(names).every(([k, v]) => (plan.names?.[k] || "") === (v || ""));
+  const ac = plan?.active_course;
+  const local = typeof window !== "undefined" && /^(localhost|127\.|\[::1\])/.test(window.location.hostname);
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try { await api("/api/qr/plan", { method: "PUT", json: { count: n, names } }); reload(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="card p-5 space-y-4 lg:col-span-2">
+      <div>
+        <h2 className="text-xl font-bold">Printable QR codes</h2>
+        <p className="text-sm text-muted mt-1">
+          Set how many stations you plan to have and generate the signs: one per station plus a START/FINISH sign for
+          the booth. Print them before the show. When the crew walks the survey (stations in numbered order), the mapped
+          course picks up these same codes, so the printed signs just work. Codes never change once made: adding
+          stations adds signs, removing stations only hides them. Participant codes are personal and appear on screen at
+          check-out.
+        </p>
+      </div>
+      <div className="flex gap-3 items-end flex-wrap">
+        <label><div className="label mb-1">Number of stations</div>
+          <input className="input w-32 text-lg" type="number" min={1} max={99} value={count} onChange={(e) => setCount(e.target.value)} /></label>
+        <button className="btn btn-primary" disabled={busy || n < 1 || !!saved} onClick={save}>
+          {busy ? "Generating..." : plan?.count ? (saved ? "Codes up to date" : "Update codes") : "Generate codes"}</button>
+        {plan?.count > 0 && <a className="btn" href="/admin/qr" target="_blank">Open printable signs ({plan.count + 1} pages)</a>}
+        {plan?.count > 0 && <DownloadQrButton signs={planSigns(plan)} zipName="qr-codes.zip" />}
+      </div>
+      {n > 0 && (
+        <details>
+          <summary className="cursor-pointer label">Station names (optional, printed on the signs)</summary>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
+            {Array.from({ length: n }, (_, k) => `S${k + 1}`).map((sid, k) => (
+              <label key={sid} className="flex items-center gap-2">
+                <span className="w-8 text-right font-bold">{k + 1}</span>
+                <input className="input py-1" placeholder={`Station ${k + 1}`} value={names[sid] || ""} onChange={(e) => setNames({ ...names, [sid]: e.target.value })} />
+              </label>
+            ))}
+          </div>
+        </details>
+      )}
+      {local && <div className="card p-3 border-warn text-warn text-sm">
+        You are on {typeof window !== "undefined" ? window.location.host : "localhost"}. QR codes contain the address of this page, so
+        signs printed here would send phones to your laptop. Print from the live site instead.</div>}
+      {ac && (
+        <div className="text-sm">
+          Active course <b>{ac.name} v{ac.version}</b> has {ac.stations} stations.
+          {plan?.count > 0 && ac.stations > plan.count && <span className="text-warn"> {ac.stations - plan.count} of them have no planned sign: raise the count and print the extra signs.</span>}
+          {plan?.count > 0 && ac.stations < plan.count && <span className="text-warn"> The plan has {plan.count - ac.stations} more sign(s) than the course; those codes will not check in.</span>}
+          {!ac.qr_on && <span className="text-warn"> QR check-ins are off for this course.</span>}
+          {!ac.qr_on && <button className="btn text-sm ml-2" onClick={async () => {
+            const c = await api(`/api/courses/${ac.id}`);
+            await api(`/api/courses/${ac.id}`, { method: "PATCH", json: { identity_methods: [...(c.data.identity_methods || []), "qr"] } });
+            reload();
+          }}>Turn on QR check-ins</button>}
+        </div>
+      )}
+      {!ac && plan?.count > 0 && <div className="text-sm text-muted">No course is published yet. That is fine: print now, and the course will use these codes once the survey is mapped and published.</div>}
+      <ErrorBox error={err} />
+      {plan?.count > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-3">
+          {["BOOTH", ...Array.from({ length: plan.count }, (_, k) => `S${k + 1}`)].filter((sid) => codes[sid]).map((sid) => (
+            <div key={sid} className="text-center">
+              <QrCode text={originUrl(`/s/${codes[sid]}`)} size={110} />
+              <div className="text-xs mt-1 truncate">{sid === "BOOTH" ? "START / FINISH" : plan.names?.[sid] || `Station ${sid.slice(1)}`}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

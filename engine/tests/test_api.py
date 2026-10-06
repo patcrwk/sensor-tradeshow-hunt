@@ -151,3 +151,24 @@ def test_qr_checkins(client, monkeypatch):
     me = client.get(f"/api/p/{tok}").json()
     assert me["name"] == "Cy" and me["result"]["rank"] >= 1 and len(me["scans"]) == len(visited) + 2
     assert "company" not in json.dumps(client.get(f"/api/runs/{run['id']}/public").json())
+
+
+def test_qr_plan_before_course(client, monkeypatch):
+    """Signs printed from a station plan keep working once the surveyed course is published."""
+    monkeypatch.delenv("STAFF_PASSWORD", raising=False)
+    plan = client.put("/api/qr/plan", json={"count": 4, "names": {"S2": "Coffee"}}).json()
+    assert plan["count"] == 4 and set(plan["codes"]) == {"BOOTH", "S1", "S2", "S3", "S4"}
+    printed = dict(plan["codes"])
+    # growing keeps old codes; shrinking keeps them too (signs already printed stay valid)
+    plan = client.put("/api/qr/plan", json={"count": 7}).json()
+    assert all(plan["codes"][k] == v for k, v in printed.items()) and "S7" in plan["codes"]
+    plan = client.put("/api/qr/plan", json={"count": 6}).json()
+    assert plan["count"] == 6 and "S7" in plan["codes"] and plan["names"]["S2"] == "Coffee"
+
+    from engine.synthetic.cli import generate_set
+    files = generate_set(client.tmp / "s4", "outdoor", serial=8400, n_participants=0)
+    sv = files[0]
+    c = client.post("/api/courses/survey", files=[("files", (sv.name, sv.read_bytes()))], data={"name": "Plan"}).json()
+    assert c["data"]["qr_codes"]["S1"] == printed["S1"] and c["data"]["qr_codes"]["BOOTH"] == printed["BOOTH"]
+    client.post(f"/api/courses/{c['id']}/publish")
+    assert client.get(f"/api/qr/station/{printed['S3']}").json()["station"]["id"] == "S3"

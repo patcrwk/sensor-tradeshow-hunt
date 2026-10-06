@@ -328,6 +328,8 @@ def derive(course_id: int, mode: str | None = None) -> Course:
                 doc["background"] = c.data["background"]
             if c.data.get("qr_codes"):                 # printed signs must keep working
                 doc["qr_codes"] = {**doc.get("qr_codes", {}), **c.data["qr_codes"]}
+        if doc is not None:
+            apply_plan(doc)
         c.data = doc
         c.status = status
         c.error = err
@@ -390,6 +392,76 @@ def edit_course(course_id: int, patch: dict) -> Course:
     audit("course_edit", json.dumps(patch)[:500], course_id=course_id)
     bus.publish("course", {"course_id": course_id})
     return c
+
+
+def ensure_codes(course_id: int) -> Course:
+    """Give a course its station QR codes if it has none yet (older courses)."""
+    from ..course.survey import ensure_qr_codes
+    with session() as s:
+        c = s.get(Course, course_id)
+        if c.data and not c.data.get("qr_codes"):
+            doc = json.loads(json.dumps(c.data))
+            ensure_qr_codes(doc)
+            apply_plan(doc)
+            c.data = doc
+            s.add(c)
+            s.commit()
+            s.refresh(c)
+    return c
+
+
+# -- QR station plan: print signs before the course is mapped -------------------
+
+def qr_plan() -> dict:
+    """{count, codes: {BOOTH, S1..}, names: {S1: ...}}. Codes are never changed or removed once made,
+    so signs that were printed keep working when the count changes."""
+    return get_setting("qr_plan") or {"count": 0, "codes": {}, "names": {}}
+
+
+def set_qr_plan(count: int, names: dict | None = None) -> dict:
+    import secrets
+    plan = qr_plan()
+    count = max(0, min(int(count), 99))
+    codes = dict(plan.get("codes") or {})
+    for sid in ["BOOTH"] + [f"S{i}" for i in range(1, count + 1)]:
+        codes.setdefault(sid, secrets.token_urlsafe(6))
+    plan = {"count": count, "codes": codes,
+            "names": {**(plan.get("names") or {}), **{k: v for k, v in (names or {}).items() if v}}}
+    set_setting("qr_plan", plan)
+    # Courses that already exist adopt the planned codes for matching station numbers
+    with session() as s:
+        for c in s.exec(select(Course)).all():
+            if c.data:
+                doc = json.loads(json.dumps(c.data))
+                if apply_plan(doc, plan):
+                    c.data = doc
+                    s.add(c)
+        s.commit()
+    audit("qr_plan", f"{count} stations")
+    bus.publish("course", {})
+    return plan
+
+
+def apply_plan(doc: dict, plan: dict | None = None) -> bool:
+    """Make a course use the planned code for every station it shares with the plan."""
+    plan = plan or qr_plan()
+    pcodes = plan.get("codes") or {}
+    if not pcodes:
+        return False
+    codes = doc.setdefault("qr_codes", {})
+    ids = ["BOOTH"] + [st["id"] for st in doc.get("stations", [])]
+    changed = False
+    for sid in ids:
+        if sid in pcodes and codes.get(sid) != pcodes[sid]:
+            codes[sid] = pcodes[sid]
+            changed = True
+    names = plan.get("names") or {}
+    for st in doc.get("stations", []):           # planned names replace default ones
+        nm = names.get(st["id"])
+        if nm and st.get("name") == f"Station {st.get('number')}":
+            st["name"] = nm
+            changed = True
+    return changed
 
 
 def publish_course(course_id: int) -> Course:

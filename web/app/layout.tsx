@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "@fontsource/orbitron/700.css";
+import "@fontsource/orbitron/800.css";
+import "@fontsource/orbitron/900.css";
+import "@fontsource/rajdhani/500.css";
+import "@fontsource/rajdhani/600.css";
+import "@fontsource/rajdhani/700.css";
 import BrandProvider from "@/components/BrandProvider";
 
 export const metadata: Metadata = {

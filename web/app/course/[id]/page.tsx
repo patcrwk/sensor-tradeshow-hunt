@@ -48,7 +48,7 @@ export default function CoursePage({ params }: { params: Promise<{ id: string }>
           } catch (e: any) { setErr(e.message); }
         }}>Publish</button>}
         {!editable && <button className="btn" onClick={async () => { const n = await api(`/api/courses/${id}/new-version`, { method: "POST" }); router.push(`/course/${n.id}`); }}>Edit as new version</button>}
-        {d?.qr_codes && <a className="btn" href={`/course/${id}/qr`} target="_blank">Print QR signs</a>}
+        {d && <a className="btn" href={`/course/${id}/qr`} target="_blank">Print QR signs</a>}
         <a className="btn" href={`${apiBase()}/api/courses/${id}/export`}>Export package</a>
       </>}>
       <ErrorBox error={err || c.error} />

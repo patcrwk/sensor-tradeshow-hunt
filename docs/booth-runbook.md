@@ -40,19 +40,34 @@ Use when GPS is poor in the hall and you do not want holders or tap codes.
 Participants scan a printed QR sign at each station with their phone camera;
 the sensor's 10 second rest still proves the stop.
 
-1. Course Setup > your course > Rules and identity: tick **QR code scans**.
-   (With GPS also ticked, both must agree.)
-2. Click **Print QR signs**: one page per station plus a START/FINISH sign for
-   the booth. Print once; the codes survive re-mapping and new versions of the
-   course. They only work while that course is the active one.
-3. At check-out, a **phone QR** appears for the participant. They scan it once:
+1. **Before the show:** Admin > **Printable QR codes**. Enter how many stations
+   you plan to have (optionally name them) and click **Generate codes**, then
+   **Open printable signs**: one page per station plus a START/FINISH sign.
+   Do this on the live site, not on localhost (the page warns you).
+   Codes never change once made: raising the count adds signs, lowering it only
+   hides the extras, so printed signs stay valid.
+   The signs match the show branding (the Waypoint bullseye laminate sheets):
+   Home Base and Waypoint 1 to N, each with its QR code in the bullseye.
+   **Download print-ready PDF** gives US Letter, 300 dpi, full-bleed pages for
+   a print shop. **Download QR codes and signs (.zip)** adds the signs as PNG,
+   the bullseye with the QR on a transparent background (for custom layouts),
+   the plain QR codes, and `codes.csv` mapping each file to its sign and link.
+   Booth number, website, footer and the "Home Base" / "Waypoint" wording are
+   set in Admin > Event and branding. Test-scan every printed sign.
+2. Place Station 1 to N and walk the survey **in numbered order**. The mapped
+   course takes the printed codes (and names) automatically.
+3. Course Setup > your course > Rules and identity: tick **QR code scans**
+   (or use the button in Admin). With GPS also ticked, both must agree.
+   Signs only check in while their course is the active one. Course Setup >
+   **Print QR signs** reprints a single course's signs if needed.
+4. At check-out, a **phone QR** appears for the participant. They scan it once:
    it opens their personal hunt page and links their phone to their run.
    ("Phone QR" in the Out on the course list shows it again.)
-4. At each station: scan the sign, then rest the sensor for 10 seconds.
-5. Scans are matched to the sensor's rests automatically, even if the sensor
+5. At each station: scan the sign, then rest the sensor for 10 seconds.
+6. Scans are matched to the sensor's rests automatically, even if the sensor
    clock is a few minutes off. The run page lists every scan and whether it
    paired with a rest. A scan with no rest near it does not count.
-6. When the run is published, the participant's own page shows their time,
+7. When the run is published, the participant's own page shows their time,
    rank, route replay and splits.
 
 ## 3. Running the hunt

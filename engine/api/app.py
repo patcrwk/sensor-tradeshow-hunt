@@ -33,6 +33,9 @@ log = logging.getLogger("engine")
 
 DEFAULT_BRANDING = {"event_name": "Sensor Scavenger Hunt", "company": "BDAS",
                     "company_full": "Big Duck Applied Sciences",
+                    "booth_label": "BOOTH 616", "website": "www.bigduckappliedsciences.com",
+                    "sign_footer": "Join the scavenger hunt and see your own live telemetry!",
+                    "home_term": "Home Base", "station_term": "Waypoint",
                     "primary": "#00a3e0", "accent": "#ffb000", "logo_url": None,
                     "tagline": "From raw sensor data to real understanding."}
 DEFAULT_KIOSK = {"panels": ["join", "leaderboard:fastest", "course", "leaderboard:efficient", "crowd", "leaderboard:crew",
@@ -501,6 +504,26 @@ def _station_for_code(code: str):
     return c, None
 
 
+@app.get("/api/qr/plan")
+def get_qr_plan():
+    plan = S.qr_plan()
+    c = S.active_course()
+    return {**plan, "active_course": {"id": c.id, "name": c.name, "version": c.version,
+                                      "stations": len(c.data["stations"]) if c.data else 0,
+                                      "qr_on": "qr" in ((c.data or {}).get("identity_methods") or [])} if c else None}
+
+
+class PlanBody(BaseModel):
+    count: int
+    names: dict[str, str] | None = None
+
+
+@app.put("/api/qr/plan")
+def put_qr_plan(body: PlanBody):
+    S.set_qr_plan(body.count, body.names)
+    return get_qr_plan()
+
+
 @app.get("/api/qr/station/{code}")
 def qr_station(code: str):
     c, st = _station_for_code(code)
@@ -596,6 +619,8 @@ def course(course_id: int):
         c = s.get(Course, course_id)
     if not c:
         _404()
+    if c.data and not c.data.get("qr_codes"):
+        c = S.ensure_codes(course_id)        # courses made before QR check-ins existed
     return _course_dict(c)
 
 
