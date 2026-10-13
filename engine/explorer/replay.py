@@ -172,6 +172,12 @@ def build_replay(b: Bundle, analysis: dict | None = None, model: str = "sensor",
                 out["x"] = np.round(np.interp(t, tr["t"], tr["x"]), 2).tolist()
                 out["y"] = np.round(np.interp(t, tr["t"], tr["y"]), 2).tolist()
                 out["notes"].append("Horizontal position from GPS.")
+    tr = (analysis or {}).get("track") or {}
+    if "x" not in out and tr.get("available") and len(tr.get("t") or []) > 2:
+        out["x"] = np.round(np.interp(t, tr["t"], tr["x"]), 2).tolist()
+        out["y"] = np.round(np.interp(t, tr["t"], tr["y"]), 2).tolist()
+        out["notes"].append("No GPS: horizontal movement is reconstructed from steps and heading"
+                            + (", fitted to the course stations." if tr.get("source") == "run" else "."))
     if "x" not in out:
         out["notes"].append("No GPS in this recording, so horizontal movement is not shown: the object "
                             "climbs, tilts and turns in place.")

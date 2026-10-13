@@ -136,6 +136,7 @@ def settings():
     return {"branding": get_setting("branding", DEFAULT_BRANDING), "kiosk": get_setting("kiosk", DEFAULT_KIOSK),
             "watch_folder": get_setting("watch_folder", ""), "auto_publish": get_setting("auto_publish", True),
             "active_course_id": get_setting("active_course_id"), "event": current_event().model_dump(),
+            "static_map": _static_map_info(),
             "sensor_data_subdir": get_config().paths.sensor_data_subdir}
 
 
@@ -146,10 +147,16 @@ class SettingsPatch(BaseModel):
     auto_publish: bool | None = None
     active_course_id: int | None = None
     event_name: str | None = None
+    static_map_enabled: bool | None = None
 
 
 @app.put("/api/settings")
 def put_settings(p: SettingsPatch):
+    if p.static_map_enabled is not None:
+        sm = get_setting("static_map") or {}
+        if p.static_map_enabled and not sm.get("key"):
+            raise HTTPException(400, "upload a static map image first")
+        set_setting("static_map", {**sm, "enabled": p.static_map_enabled})
     for k in ("branding", "kiosk", "watch_folder", "auto_publish"):
         v = getattr(p, k)
         if v is not None:
@@ -165,6 +172,52 @@ def put_settings(p: SettingsPatch):
             s.commit()
     bus.publish("settings", {})
     return settings()
+
+
+# -- static map (when the reconstructed map is not good enough to show) ----------
+
+def _static_map_info() -> dict:
+    sm = get_setting("static_map") or {}
+    return {"enabled": bool(sm.get("enabled") and sm.get("key")), "has_image": bool(sm.get("key")),
+            "filename": sm.get("filename"), "version": sm.get("version", 0)}
+
+
+@app.post("/api/admin/static-map")
+async def upload_static_map(file: UploadFile = File(...)):
+    data = await file.read()
+    if len(data) > 25_000_000:
+        raise HTTPException(400, "image too large (25 MB max)")
+    import mimetypes
+    ctype = file.content_type or mimetypes.guess_type(file.filename or "")[0] or ""
+    if not ctype.startswith("image/"):
+        raise HTTPException(400, "please upload an image (PNG, JPG, SVG or WebP)")
+    sm = get_setting("static_map") or {}
+    key = storage.put(f"static_map/{Path(file.filename or 'map.png').name}", data)
+    if sm.get("key") and sm["key"] != key:
+        storage.delete(sm["key"])
+    set_setting("static_map", {"key": key, "filename": file.filename, "content_type": ctype,
+                               "enabled": True, "version": int(sm.get("version", 0)) + 1})
+    audit("static_map", file.filename)
+    bus.publish("settings", {})
+    return _static_map_info()
+
+
+@app.delete("/api/admin/static-map")
+def delete_static_map():
+    sm = get_setting("static_map") or {}
+    storage.delete(sm.get("key"))
+    set_setting("static_map", {})
+    bus.publish("settings", {})
+    return _static_map_info()
+
+
+@app.get("/api/static-map")
+def static_map_image():
+    sm = get_setting("static_map") or {}
+    data = storage.get(sm.get("key"))
+    if data is None:
+        _404()
+    return Response(data, media_type=sm.get("content_type") or "image/png", headers={"Cache-Control": "public, max-age=60"})
 
 
 # -- uploads --------------------------------------------------------------------
@@ -530,7 +583,13 @@ def qr_station(code: str):
     if not st:
         _404("this code does not belong to the current course")
     return {"station": {"id": st["id"], "name": st["name"], "number": st["number"]},
-            "total": len(c.data["stations"]), "event": get_setting("branding", {}).get("event_name")}
+            "total": len(c.data["stations"]), "event": get_setting("branding", {}).get("event_name"),
+            "stations": _public_stations(c), "order_rule": c.data.get("order_rule", "any")}
+
+
+def _public_stations(c) -> list[dict]:
+    return [{"id": s["id"], "number": s["number"], "name": s["name"], "required": s.get("required", True)}
+            for s in c.data["stations"]]
 
 
 class ScanBody(BaseModel):
@@ -547,9 +606,10 @@ def qr_scan(body: ScanBody):
         run = s.exec(select(Run).where(Run.token == body.token)).first()
         if not run or run.event_id != current_event().id:
             raise HTTPException(404, "your hunt link was not found; ask at the booth")
-        last = s.exec(select(Scan).where(Scan.run_id == run.id, Scan.station == st["id"])
-                      .order_by(Scan.at.desc())).first()
-        duplicate = last is not None and time.time() - last.at < 120
+        # A repeat scan of the same sign is ignored, unless the participant has been
+        # somewhere else since (Home Base is scanned once to start and again to finish).
+        latest = s.exec(select(Scan).where(Scan.run_id == run.id).order_by(Scan.at.desc())).first()
+        duplicate = latest is not None and latest.station == st["id"]
         if not duplicate:
             s.add(Scan(run_id=run.id, course_id=c.id, station=st["id"]))
             s.commit()
@@ -559,7 +619,9 @@ def qr_scan(body: ScanBody):
         if upload_id:                               # late scan after the sensor came back: rescore
             S.POOL.submit(S._process_safe, run.id)
     return {"station": {"id": st["id"], "name": st["name"], "number": st["number"]}, "duplicate": duplicate,
-            "scans": S.run_scans(run.id), "total": len(c.data["stations"])}
+            "scans": S.run_scans(run.id), "total": len(c.data["stations"]),
+            "stations": _public_stations(c), "order_rule": c.data.get("order_rule", "any"),
+            "hunt_link": f"/p/{body.token}"}
 
 
 @app.get("/api/p/{token}")
@@ -581,7 +643,8 @@ def participant(token: str):
                                            for st in d["stations"]],
                   "booth": d["booth"], "route": d.get("route"), "background": d.get("background"),
                   "par_s": d.get("par", {}).get("par_time_s"),
-                  "uses_qr": "qr" in (d.get("identity_methods") or [])}
+                  "uses_qr": "qr" in (d.get("identity_methods") or []),
+                  "order_rule": d.get("order_rule", "any")}
     out = {"name": p.display_name if p else "", "status": run.status, "course": course,
            "scans": S.run_scans(run.id), "result": None}
     if run.status == "published":
@@ -653,6 +716,16 @@ def publish_course(course_id: int):
 @app.post("/api/courses/{course_id}/rescore")
 def rescore(course_id: int):
     return {"queued": S.rescore_all(course_id)}
+
+
+@app.delete("/api/courses/{course_id}")
+def delete_course(course_id: int, force: bool = Query(False)):
+    try:
+        return S.delete_course(course_id, force)
+    except KeyError:
+        _404()
+    except S.CourseInUse as ex:
+        raise HTTPException(409, str(ex))
 
 
 @app.post("/api/courses/{course_id}/new-version")

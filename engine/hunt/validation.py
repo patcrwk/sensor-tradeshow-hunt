@@ -24,16 +24,33 @@ def process_run(b: Bundle, course: dict | None, cfg=None, overrides: dict | None
     when present it replaces automatic identification for sequence and scoring.
     """
     cfg = cfg or get_config()
-    st = detect_rests(b, cfg)
-    rests = st.rests
     groups = group_taps(detect_taps(b, cfg), cfg)
     qr = None
-    if course and "qr" in (course.get("identity_methods") or []):
-        qr = match_scans(scans or [], rests, b.meta.get("start_epoch"), cfg)
+    if course and "qr" in (course.get("identity_methods") or []) and scans:
+        # A scan proves the participant meant to stop there, so a shorter rest
+        # (counted out too quickly) still counts when a scan pairs with it.
+        st = detect_rests(b, cfg, min_rest_s=cfg.stillness.qr_min_rest_s)
+        qr = match_scans(scans, st.rests, b.meta.get("start_epoch"), cfg)
+        keep = [i for i, r in enumerate(st.rests)
+                if r.duration >= cfg.stillness.min_rest_s or qr["per_rest"][i].get("available")]
+        dropped = [r for i, r in enumerate(st.rests) if i not in set(keep)]
+        for r in dropped:
+            r.accepted, r.reason = False, "too_short"
+        st.rejected = sorted(st.rejected + dropped, key=lambda r: r.start)
+        st.rests = [st.rests[i] for i in keep]
+        qr["per_rest"] = [qr["per_rest"][i] for i in keep]
+    else:
+        st = detect_rests(b, cfg)
+        if course and "qr" in (course.get("identity_methods") or []):
+            qr = match_scans([], st.rests, b.meta.get("start_epoch"), cfg)
+    rests = st.rests
     idents = [identify_rest(b, r, course, groups, cfg, extra={"qr": qr["per_rest"][i]} if qr else None)
               if course else None for i, r in enumerate(rests)]
 
     notes: list[str] = []
+    if course and (course.get("identity_methods") or []) == ["qr"] and not scans:
+        notes.append("No QR scans were recorded for this run (the phone may not have joined at check-out). "
+                     "Assign the stops to stations on the review screen.")
     start_i, finish_i = _find_start_finish(rests, idents, notes)
     start = rests[start_i] if start_i is not None else None
     finish = rests[finish_i] if finish_i is not None else None

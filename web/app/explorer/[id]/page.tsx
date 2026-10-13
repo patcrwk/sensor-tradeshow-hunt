@@ -38,7 +38,7 @@ export default function RecordingPage({ params }: { params: Promise<{ id: string
           {cur === "frequency" && <Frequency id={id} />}
           {cur === "shock" && <Shock s={a.data.shock} />}
           {cur === "environment" && <Environment e={a.data.environment} />}
-          {cur === "motion" && <Motion m={a.data.motion} g={a.data.gps} />}
+          {cur === "motion" && <Motion m={a.data.motion} g={a.data.gps} track={a.data.track} />}
           {cur === "replay" && <ReplayTab id={id} title={rec.data.title} />}
           {cur === "story" && <Story rec={rec.data} st={a.data.story} onSaved={() => { rec.reload(); a.reload(); }} />}
         </>
@@ -253,7 +253,7 @@ function Chart({ title, x, ys, labels, x2, y2 }: { title: string; x: number[]; y
   );
 }
 
-function Motion({ m, g }: { m: any; g: any }) {
+function Motion({ m, g, track }: { m: any; g: any; track?: any }) {
   const [colorBy, setColorBy] = useState<string>("");
   return (
     <div className="space-y-4">
@@ -272,13 +272,29 @@ function Motion({ m, g }: { m: any; g: any }) {
       </>}
       <div className="card p-4">
         <div className="flex justify-between items-center mb-2">
-          <div className="label">GPS track</div>
+          <div className="label">{g.available ? "GPS track" : "Route"}</div>
           {g.available && <select className="input w-56" value={colorBy} onChange={(e) => setColorBy(e.target.value)}>
             <option value="">color: none</option>{Object.keys(g.colors).map((k) => <option key={k} value={k}>color: {k}</option>)}</select>}
         </div>
-        {g.available ? <GpsTrack g={g} colorBy={colorBy} /> : <div className="text-muted">{g.reason || "No location channel"}. Recordings from GPS-equipped sensors show their track here.</div>}
+        {g.available ? <GpsTrack g={g} colorBy={colorBy} />
+          : track?.available ? <TrackMap t={track} />
+          : <div className="text-muted">{g.reason || "No location channel"}. Recordings from GPS-equipped sensors show their track here.</div>}
       </div>
     </div>
+  );
+}
+
+function TrackMap({ t }: { t: any }) {
+  const c = t.course;
+  const stops = (t.stops || []).map((p: any) => ({ x: p.x, y: p.y, label: "stop" }));
+  return (
+    <>
+      <div className="label mb-2">Route {t.source === "run" ? "(hunt run, fitted to the course)" : "(reconstructed)"}</div>
+      <CourseMap courseId={c?.id} booth={c?.booth ?? { x: t.x[0], y: t.y[0] }} stations={c?.stations} background={c?.background}
+        reference={c?.route ? { x: c.route.x, y: c.route.y, source: c.route.source, color: "#9fb0c2", opacity: 0.3 } : null}
+        routes={[{ x: t.x, y: t.y, source: t.route_source || "reconstructed" }]} highlight={t.visited} strays={c ? [] : stops} height={600} />
+      <div className="text-sm text-muted mt-1">{t.distance_m} m walked. {t.note}</div>
+    </>
   );
 }
 

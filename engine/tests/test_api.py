@@ -172,3 +172,32 @@ def test_qr_plan_before_course(client, monkeypatch):
     assert c["data"]["qr_codes"]["S1"] == printed["S1"] and c["data"]["qr_codes"]["BOOTH"] == printed["BOOTH"]
     client.post(f"/api/courses/{c['id']}/publish")
     assert client.get(f"/api/qr/station/{printed['S3']}").json()["station"]["id"] == "S3"
+
+
+def test_delete_course(client, monkeypatch):
+    monkeypatch.delenv("STAFF_PASSWORD", raising=False)
+    from engine.synthetic.cli import generate_set
+    files = generate_set(client.tmp / "s5", "outdoor", serial=8500, n_participants=1)
+    sv = [f for f in files if "survey" in f.name][0]
+    a = client.post("/api/courses/survey", files=[("files", (sv.name, sv.read_bytes()))], data={"name": "A"}).json()
+    b = client.post("/api/courses/survey", files=[("files", (sv.name, sv.read_bytes()))], data={"name": "B"}).json()
+    client.post(f"/api/courses/{a['id']}/publish")
+    # the active course cannot be deleted
+    assert client.delete(f"/api/courses/{a['id']}").status_code == 409
+    # a run scored against course A needs force once A is no longer active
+    p = [f for f in files if "participant" in f.name][0]
+    run = client.post("/api/runs/checkout", json={"display_name": "Del", "serial": "8500"}).json()["run"]
+    up = client.post("/api/uploads", files={"file": (p.name, p.read_bytes())}).json()
+    client.post(f"/api/runs/{run['id']}/attach", json={"upload_id": up["upload"]["id"]})
+    for _ in range(100):
+        if client.get(f"/api/runs/{run['id']}").json()["run"]["status"] != "processing":
+            break
+        time.sleep(0.1)
+    client.post(f"/api/courses/{b['id']}/publish")
+    assert client.delete(f"/api/courses/{a['id']}").status_code == 409
+    r = client.delete(f"/api/courses/{a['id']}?force=true").json()
+    assert r["runs_unlinked"] == 1
+    assert client.get(f"/api/courses/{a['id']}").status_code == 404
+    d = client.get(f"/api/runs/{run['id']}").json()
+    assert d["result"]["elapsed_s"] and d["run"]["course_id"] is None      # results kept
+    assert client.get(f"/api/courses/{b['id']}").json()["data"]           # the shared survey file is kept for B

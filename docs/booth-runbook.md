@@ -33,6 +33,28 @@
    mark bonus stations, set the order rule. Read any spacing warnings.
 9. Publish. Export the package and keep it with the booth kit: the same venue
    next year can import it.
+10. To tidy up, **Delete** old or test courses (Course Setup list, or on the
+    course page). The active course cannot be deleted: make another one active
+    first. Runs scored against a deleted course keep their times and results.
+    Printed QR signs are not affected.
+
+### Lessons from the first real test (Oct 12)
+
+- The S3-D40 and S4-E100D40 sensors record **no GPS**. Maps are reconstructed
+  from steps and heading, and the course is identified by QR scans (the default
+  for a course without GPS).
+- **Turn on the rotation (gyro) channel** in the sensor configuration. Without it
+  the route cannot be reconstructed at all.
+- **Do not scan QR codes during the survey walk.** Just rest the sensor 15 to 20
+  seconds at Home Base, each Waypoint in numbered order, and Home Base again.
+- A reconstructed map has no compass direction. In Course Setup > Map and
+  stations, use **Turn** and **Flip** to line it up with the hall, or upload a
+  **static map** (Admin) and switch it on.
+- At check-out, the participant **must scan their personal QR first**, on the
+  phone they will use for the station signs. Runs with no scans are flagged for
+  review.
+- Sensor serials can be typed as printed on the label (S0014201); they match the
+  file's 14201.
 
 ## 2b. QR check-ins (GPS fallback, needs the hosted app)
 
@@ -56,8 +78,9 @@ the sensor's 10 second rest still proves the stop.
    set in Admin > Event and branding. Test-scan every printed sign.
 2. Place Station 1 to N and walk the survey **in numbered order**. The mapped
    course takes the printed codes (and names) automatically.
-3. Course Setup > your course > Rules and identity: tick **QR code scans**
-   (or use the button in Admin). With GPS also ticked, both must agree.
+3. Course Setup > your course > Rules and identity: check **QR code scans** is
+   ticked (it is the default when the course has no GPS). With another method
+   also ticked, both must agree, so untick any you are not using.
    Signs only check in while their course is the active one. Course Setup >
    **Print QR signs** reprints a single course's signs if needed.
 4. At check-out, a **phone QR** appears for the participant. They scan it once:

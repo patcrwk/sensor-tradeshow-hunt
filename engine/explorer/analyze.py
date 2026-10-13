@@ -8,7 +8,7 @@ from pathlib import Path
 from ..io.bundle import Bundle
 from .environment import environment
 from .frequency import frequency
-from .location import gps_track, motion
+from .location import dr_track, gps_track, motion
 from .overview import overview
 from .profiles import get_profile
 from .shock import shock
@@ -24,7 +24,8 @@ def analyze(b: Bundle, profile_id: str | None = None, annotations: list[dict] | 
                     ("shock", lambda: shock(b)),
                     ("environment", lambda: environment(b)),
                     ("motion", lambda: motion(b)),
-                    ("gps", lambda: gps_track(b))):
+                    ("gps", lambda: gps_track(b)),
+                    ("track", lambda: None if b.has_gps else dr_track(b))):
         try:
             a[key] = fn()
         except Exception as ex:

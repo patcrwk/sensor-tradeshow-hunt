@@ -14,6 +14,9 @@ stillness:
   min_rest_s: 8.0                # shortest rest accepted as a check-in
   target_rest_s: 10.0            # what participants are told to do
   merge_gap_s: 0.6               # join rest segments separated by short blips
+  settle_gap_s: 2.5              # join rests split by a bump up to this long, if the pose did not change
+  settle_max_deg: 12.0           # "same pose" tolerance for that join
+  qr_min_rest_s: 4.0             # with QR check-ins, a rest this short counts when a scan pairs with it
   tremor_band_hz: [4.0, 12.0]    # hand tremor band
   tremor_rms_max_g: 0.0035       # band RMS above this = held in a hand, rejected
   gravity_lowpass_hz: 0.3
@@ -85,7 +88,7 @@ course:
   min_station_separation_m: 15.0
   default_detour_factor: 1.3
   participant_rest_s: 10.0
-  survey_min_rest_s: 12.0
+  survey_min_rest_s: 8.0         # same as participants: a broken-up or short Home Base rest must still count
 
 scoring:
   vibration_band_hz: [5.0, 100.0]

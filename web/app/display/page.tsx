@@ -5,7 +5,7 @@ import Leaderboard from "@/components/Leaderboard";
 import Wordmark from "@/components/Wordmark";
 import { useSettings } from "@/components/BrandProvider";
 import { turbo } from "@/components/Heatmap";
-import { api, useApi, useEvents } from "@/lib/api";
+import { api, apiBase, useApi, useEvents } from "@/lib/api";
 import { fmtM, fmtNum, fmtTime } from "@/lib/format";
 
 export default function Display() {
@@ -19,10 +19,22 @@ export default function Display() {
   const [flash, setFlash] = useState<any | null>(null);
   const [storyIdx, setStoryIdx] = useState(0);
 
+  // Static map: set in Admin; press M on the display to switch locally
+  const [mapOverride, setMapOverride] = useState<boolean | null>(null);
+  const sm = settings?.static_map;
+  const staticOn = !!sm?.has_image && (mapOverride ?? !!sm?.enabled);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "m" || e.key === "M") setMapOverride((v) => !(v ?? !!sm?.enabled)); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sm?.enabled]);
+  useEffect(() => setMapOverride(null), [sm?.enabled, sm?.version]);
   const panels = useMemo(() => {
     const p = kiosk?.panels?.length ? kiosk.panels : ["leaderboard:fastest", "crowd"];
-    return p.filter((x) => !(x === "story:library" && !library.data?.some((r) => r.status === "ready")));
-  }, [kiosk, library.data]);
+    return p.filter((x) => !(x === "story:library" && !library.data?.some((r) => r.status === "ready")))
+      // heat map and environment map are drawn from reconstructed positions: hidden with a static map
+      .filter((x) => !(staticOn && (x === "heatmap" || x === "environment")));
+  }, [kiosk, library.data, staticOn]);
   const secs = kiosk?.seconds_per_panel || 15;
 
   useEffect(() => {
@@ -66,7 +78,7 @@ export default function Display() {
           cur === "crowd" ? <Crowd d={dash.data} /> :
           cur === "heatmap" ? <HeatPanel d={dash.data} course={course.data} /> :
           cur === "environment" ? <EnvPanel d={dash.data} course={course.data} /> :
-          cur === "course" ? <CoursePanel course={course.data} /> :
+          cur === "course" ? <CoursePanel course={course.data} staticMap={staticOn ? sm!.version : null} /> :
           cur === "join" ? <JoinPanel course={course.data} leader={lbs.data?.fastest?.rows?.[0]} eventName={b?.event_name} /> :
           cur === "story:library" && story ? <StoryPanel rec={story} /> :
           <Leaderboard id="fastest" lb={lbs.data?.fastest} big limit={8} />}
@@ -100,7 +112,7 @@ function Flash({ run }: { run: any }) {
       <div className="text-4xl text-muted">
         {run.rank ? `#${run.rank} on the leaderboard · ` : ""}{s.stations ?? 0} stations · {fmtNum(s.steps)} steps · {fmtM(s.distance_m)}
       </div>
-      {!run.complete && <div className="text-3xl text-warn">Missed {s.missing?.length || 0} station(s)</div>}
+      {!run.complete && <div className="text-3xl text-warn">Missed {s.missing?.length || 0} {(s.missing?.length || 0) === 1 ? "stop" : "stops"}</div>}
     </div>
   );
 }
@@ -122,7 +134,7 @@ function Crowd({ d }: { d: any }) {
     <div className="h-full flex flex-col gap-8">
       <h2 className="text-6xl font-extrabold">The crowd, measured</h2>
       <div className="grid grid-cols-4 gap-6">
-        <Big label="Participants" value={fmtNum(d.participants)} sub={`${d.finished} finished every station`} />
+        <Big label="Participants" value={fmtNum(d.participants)} sub={`${d.finished} hit every stop`} />
         <Big label="Steps counted" value={fmtNum(d.total_steps)} sub="by the accelerometers" />
         <Big label="Distance walked" value={fmtM(d.total_distance_m)} sub="all participants" />
         <Big label="Average time" value={fmtTime(d.avg_time_s, 0)} sub={d.best_time_s ? `best ${fmtTime(d.best_time_s)}` : ""} />
@@ -191,10 +203,15 @@ function EnvPanel({ d, course }: { d: any; course: any }) {
 
 function JoinPanel({ course, leader, eventName }: { course: any; leader?: any; eventName?: string }) {
   const cd = course?.data;
+  const { settings } = useSettings();
+  const home = settings?.branding?.home_term || "Home Base";
+  const wp = settings?.branding?.station_term || "Waypoint";
+  const n = cd?.stations?.length;
   const steps: [string, string][] = [
-    ["Pick up a sensor", "at the booth. It is already recording."],
-    ["Find every station", "Set it down and keep it perfectly still for 10 seconds."],
-    ["Bring it back", "and watch your results appear right here."],
+    ["Pick up a sensor", `here, and scan your personal code with your phone.`],
+    [`Start at ${home}`, "scan the sign, set the sensor down for 10 seconds."],
+    [`Hit ${n ? `all ${n}` : "every"} ${wp}s`, "scan, then set it down for 10 seconds, hands off."],
+    [`Finish at ${home}`, "scan, rest 10 seconds, and see your results here."],
   ];
   return (
     <div className="h-full grid grid-cols-[3fr_2fr] gap-12 items-center">
@@ -211,7 +228,7 @@ function JoinPanel({ course, leader, eventName }: { course: any; leader?: any; e
         </ol>
       </div>
       <div className="space-y-6">
-        {cd && <Big label="Stations" value={cd.stations.length} sub="hidden around the show floor" />}
+        {cd && <Big label={`${wp}s`} value={cd.stations.length} sub={`plus ${home} at the start and finish`} />}
         {cd && <Big label="Crew time to beat" value={fmtTime(cd.par.par_time_s, 0)} />}
         {leader && <Big label="Current leader" value={leader.name} sub={fmtTime(leader.value)} />}
         <div className="text-3xl text-muted">Your route, steps, stops and steadiness, all measured by the sensor.</div>
@@ -220,17 +237,24 @@ function JoinPanel({ course, leader, eventName }: { course: any; leader?: any; e
   );
 }
 
-function CoursePanel({ course }: { course: any }) {
-  if (!course?.data) return <div className="text-5xl text-muted">Ask at the booth to join the hunt!</div>;
-  const cd = course.data;
+function CoursePanel({ course, staticMap }: { course: any; staticMap?: number | null }) {
+  const { settings } = useSettings();
+  const home = settings?.branding?.home_term || "Home Base";
+  const wp = settings?.branding?.station_term || "Waypoint";
+  if (!course?.data && staticMap == null) return <div className="text-5xl text-muted">Ask at the booth to join the hunt!</div>;
+  const cd = course?.data;
   return (
     <div className="h-full grid grid-cols-[2fr_1fr] gap-8">
-      <CourseMap big courseId={course.id} booth={cd.booth} stations={cd.stations} background={cd.background} height={900}
-        reference={{ x: cd.route.x, y: cd.route.y, source: cd.route.source, opacity: 0.5 }} />
+      {staticMap != null
+        // eslint-disable-next-line @next/next/no-img-element
+        ? <img src={`${apiBase()}/api/static-map?v=${staticMap}`} alt="course map" className="w-full h-full object-contain rounded-lg" />
+        : <CourseMap big courseId={course.id} booth={cd.booth} stations={cd.stations} background={cd.background} height={900}
+            reference={{ x: cd.route.x, y: cd.route.y, source: cd.route.source, opacity: 0.5 }} />}
       <div className="flex flex-col gap-6 justify-center">
         <h2 className="text-6xl font-extrabold">The course</h2>
-        <div className="text-3xl text-muted">{cd.stations.length} stations. Rest the sensor still for 10 seconds at each one.</div>
-        <Big label="Crew par" value={fmtTime(cd.par.par_time_s, 0)} sub="can you beat it?" />
+        {cd && <div className="text-3xl text-muted">Start at {home}, visit all {cd.stations.length} {wp}s, finish back at {home}.
+          At each stop scan the sign, then set the sensor down for 10 seconds.</div>}
+        {cd && <Big label="Crew par" value={fmtTime(cd.par.par_time_s, 0)} sub="can you beat it?" />}
       </div>
     </div>
   );

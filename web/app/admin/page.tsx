@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSettings } from "@/components/BrandProvider";
 import { ErrorBox, Page } from "@/components/Nav";
-import { api, apiBase, useApi } from "@/lib/api";
+import { api, apiBase, upload, useApi } from "@/lib/api";
 import QrCode, { originUrl } from "@/components/QrCode";
 import { DownloadQrButton, planSigns } from "@/components/SignSheet";
 
@@ -116,6 +116,8 @@ export default function Admin() {
         </section>
 
         <QrPrintBox activeId={s.active_course_id} />
+
+        <StaticMapBox sm={settings?.static_map} onChange={reload} />
 
         <section className="card p-5 space-y-3">
           <h2 className="text-xl font-bold">Leads and reset</h2>
@@ -276,3 +278,49 @@ function QrPrintBox({ activeId }: { activeId: number | null }) {
     </section>
   );
 }
+
+
+function StaticMapBox({ sm, onChange }: { sm?: { enabled: boolean; has_image: boolean; filename?: string; version: number }; onChange: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const toggle = async (on: boolean) => {
+    setErr(null);
+    try { await api("/api/settings", { method: "PUT", json: { static_map_enabled: on } }); onChange(); } catch (e: any) { setErr(e.message); }
+  };
+  return (
+    <section className="card p-5 space-y-3">
+      <h2 className="text-xl font-bold">Static course map</h2>
+      <p className="text-sm text-muted">
+        When GPS is poor the course map is reconstructed from steps and can look rough. Upload your own map (floor plan with
+        the {"Waypoints"} marked, a designed course map) and switch it on: the big screen and participants&apos; result pages show it
+        instead. The heat map and show-floor environment panels are hidden while it is on. On the display, press <b>M</b> to
+        switch between the two.
+      </p>
+      <div className="flex gap-3 items-center flex-wrap">
+        <label className="btn">{busy ? "Uploading..." : sm?.has_image ? "Replace image" : "Upload map image"}
+          <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+            const f = e.target.files?.[0]; if (!f) return;
+            setBusy(true); setErr(null);
+            try { const fd = new FormData(); fd.append("file", f); await upload("/api/admin/static-map", fd); onChange(); }
+            catch (ex: any) { setErr(ex.message); } finally { setBusy(false); e.target.value = ""; }
+          }} /></label>
+        {sm?.has_image && (
+          <label className="flex items-center gap-2 font-semibold">
+            <input type="checkbox" className="w-5 h-5" checked={sm.enabled} onChange={(e) => toggle(e.target.checked)} />
+            Show the static map instead of the reconstructed map
+          </label>
+        )}
+        {sm?.has_image && <button className="btn btn-danger text-sm" onClick={async () => {
+          if (!confirm("Remove the static map image?")) return;
+          await api("/api/admin/static-map", { method: "DELETE" }); onChange();
+        }}>Remove</button>}
+      </div>
+      {sm?.has_image && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`${apiBase()}/api/static-map?v=${sm.version}`} alt="static course map" className="max-h-72 rounded border border-line" />
+      )}
+      <ErrorBox error={err} />
+    </section>
+  );
+}
+

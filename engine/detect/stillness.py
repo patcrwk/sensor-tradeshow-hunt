@@ -85,6 +85,21 @@ def detect_rests(b: Bundle, cfg=None, min_rest_s: float | None = None) -> Stilln
             merged[-1][1] = e
         else:
             merged.append([s, e])
+    # A bump on the table (a nudge, someone touching the phone next to it) splits one
+    # rest into pieces a second or two apart. If the sensor lies in the same pose
+    # before and after, it never left the surface: join the pieces.
+    joined: list[list[int]] = []
+    settle = int(c.settle_gap_s * fs)
+    for s, e in merged:
+        if joined and s - joined[-1][1] <= settle:
+            ga = A[joined[-1][0]:joined[-1][1]].mean(axis=0)
+            gb = A[s:e].mean(axis=0)
+            cos = float(np.dot(ga, gb) / (np.linalg.norm(ga) * np.linalg.norm(gb) or 1.0))
+            if np.degrees(np.arccos(np.clip(cos, -1, 1))) <= c.settle_max_deg:
+                joined[-1][1] = e
+                continue
+        joined.append([s, e])
+    merged = joined
 
     lo, hi = c.tremor_band_hz
     trem = butter(A, fs, low=lo, high=hi) if fs > 2.2 * hi else None
@@ -100,7 +115,7 @@ def detect_rests(b: Bundle, cfg=None, min_rest_s: float | None = None) -> Stilln
         ss, ee = s + pad, e - pad
         g = A[ss:ee].mean(axis=0)
         gn = g / (np.linalg.norm(g) or 1.0)
-        tr = float(np.sqrt(np.mean(np.sum(trem[ss:ee] ** 2, axis=1)))) if trem is not None else 0.0
+        tr = _tremor(trem[ss:ee], fs) if trem is not None else 0.0
         r = Rest(
             start=float(t[s]), end=float(t[e - 1]), duration=float(dur),
             gravity=[round(float(v), 5) for v in g], gravity_unit=[round(float(v), 5) for v in gn],
@@ -121,3 +136,15 @@ def detect_rests(b: Bundle, cfg=None, min_rest_s: float | None = None) -> Stilln
     # Downsampled trace for plots (about 2 points per second)
     step = max(int(fs / 2), 1)
     return StillnessResult(rests, rejected, t[::step], mstd[::step], still[::step].astype(np.int8), fs)
+
+
+def _tremor(x: np.ndarray, fs: float) -> float:
+    """Tremor-band RMS, as the median over 1 s windows: a hand shakes the whole
+    time, while a single bump on the table only spoils one window."""
+    p = np.sum(x ** 2, axis=1)
+    w = max(int(fs), 1)
+    n = len(p) // w
+    if n < 3:
+        return float(np.sqrt(np.mean(p))) if len(p) else 0.0
+    return float(np.sqrt(np.median(p[: n * w].reshape(n, w).mean(axis=1))))
+

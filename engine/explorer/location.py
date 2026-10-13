@@ -71,3 +71,22 @@ def gps_track(b: Bundle, color_by: list[str] | None = None) -> dict:
         rms = np.sqrt(np.convolve(v ** 2, np.ones(w) / w, mode="same"))
         out["colors"]["vibration_rms_g"] = np.round(np.interp(tt, t, rms), 4).tolist()
     return out
+
+
+def dr_track(b: Bundle) -> dict:
+    """Route reconstructed from steps and heading (no GPS). Shape is right, compass
+    direction is arbitrary, start is at the origin."""
+    from ..detect.stillness import detect_rests
+    from ..position.dead_reckoning import detect_steps, dr_path
+    cfg = get_config()
+    rests = detect_rests(b, cfg).rests
+    steps = detect_steps(b, cfg, exclude=[(r.start, r.end) for r in rests])
+    if steps.count < 10:
+        return {"available": False, "reason": "too few steps to reconstruct a route"}
+    p = dr_path(steps, cfg.steps.step_length_m, t0=0.0, t_end=b.duration_s)
+    return {"available": True, "source": "reconstructed", "t": p["t"].round(2).tolist(), "x": p["x"].round(2).tolist(),
+            "y": p["y"].round(2).tolist(), "distance_m": round(path_length(p["x"], p["y"]), 1),
+            "stops": [{"t": round(r.mid, 1), "x": round(float(np.interp(r.mid, p["t"], p["x"])), 2),
+                       "y": round(float(np.interp(r.mid, p["t"], p["y"])), 2)} for r in rests],
+            "note": "Reconstructed from steps and heading: no GPS in this recording. The shape is measured; "
+                    "which way is north is not known."}

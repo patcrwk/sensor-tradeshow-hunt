@@ -3,12 +3,14 @@ import { createContext, useContext, useEffect } from "react";
 import { useApi } from "@/lib/api";
 
 type Settings = {
-  branding: { event_name: string; company: string; company_full?: string; primary: string; accent: string; logo_url: string | null; tagline: string };
+  branding: { event_name: string; company: string; company_full?: string; primary: string; accent: string; logo_url: string | null; tagline: string;
+    booth_label?: string; website?: string; sign_footer?: string; home_term?: string; station_term?: string };
   kiosk: { panels: string[]; seconds_per_panel: number; story_recording_ids: number[] };
   watch_folder: string;
   auto_publish: boolean;
   active_course_id: number | null;
   event: { id: number; name: string; created_at: number };
+  static_map?: { enabled: boolean; has_image: boolean; filename?: string; version: number };
 };
 export type Auth = { staff: boolean; required: boolean };
 

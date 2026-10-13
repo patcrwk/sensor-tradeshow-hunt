@@ -1,8 +1,10 @@
 "use client";
 import { use, useEffect } from "react";
+import { useSettings } from "@/components/BrandProvider";
+import { HuntFaq, progress, stationLabel, useTerms } from "@/components/HuntGuide";
 import PhoneShell, { saveToken } from "@/components/PhoneShell";
 import Replay from "@/components/Replay";
-import { useApi } from "@/lib/api";
+import { apiBase, useApi } from "@/lib/api";
 import { fmtM, fmtNum, fmtTime } from "@/lib/format";
 
 /** A participant's own page: opened from the QR code at check-out. */
@@ -10,6 +12,9 @@ export default function Me({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
   useEffect(() => saveToken(token), [token]);
   const { data, error } = useApi<any>(`/api/p/${token}`, ["scan", "run", "leaderboard"], 20000);
+  const { home, wp, booth } = useTerms();
+  const { settings } = useSettings();
+  const staticMap = settings?.static_map?.enabled ? settings.static_map.version : null;
 
   if (error) return <PhoneShell><div className="card p-5">This hunt link was not found. Ask at the booth for a new one.</div></PhoneShell>;
   if (!data) return <PhoneShell><div className="text-muted">Loading...</div></PhoneShell>;
@@ -24,38 +29,51 @@ export default function Me({ params }: { params: Promise<{ token: string }> }) {
         <h1 className="text-3xl font-black mt-1">Hi {data.name}!</h1>
       </div>
 
-      {data.status === "out" && (
-        <>
-          <div className="card p-5 border-brand">
-            <div className="text-xl font-bold">You are in. Your sensor is recording.</div>
-            <ol className="mt-3 space-y-2 text-muted list-decimal ml-5">
-              <li>Find every station on the show floor.</li>
-              {c?.uses_qr && <li>Scan the station&apos;s QR code with your phone camera.</li>}
-              <li>Set the sensor down on the marker and keep it perfectly still for 10 seconds.</li>
-              <li>Bring it back to the booth. Your results will appear right here.</li>
-            </ol>
-            {c?.par_s && <div className="mt-3">Crew time to beat: <b className="text-brand tabular">{fmtTime(c.par_s, 0)}</b></div>}
-          </div>
-          {c && (
-            <div className="card p-5">
-              <div className="flex justify-between items-baseline mb-2">
-                <div className="font-bold">Stations</div>
-                {c.uses_qr && <div className="text-muted text-sm">{c.stations.filter((s: any) => scanned.has(s.id)).length} of {c.stations.length} scanned</div>}
-              </div>
-              <ul className="space-y-1">
-                {c.stations.map((s: any) => (
-                  <li key={s.id} className="flex items-center gap-3">
-                    <span className={`w-7 h-7 rounded-full grid place-items-center font-bold text-sm ${scanned.has(s.id) ? "bg-good text-black" : "bg-panel-2 text-muted"}`}>
-                      {scanned.has(s.id) ? "✓" : s.number}
-                    </span>
-                    <span className={scanned.has(s.id) ? "" : "text-muted"}>{s.name}</span>
-                  </li>
-                ))}
-              </ul>
+      {data.status === "out" && (() => {
+        const stations = c?.stations || [];
+        const pr = progress(data.scans || [], stations);
+        const anyOrder = (c?.order_rule || "any") !== "fixed";
+        const rows: { key: string; label: string; done: boolean; badge: string }[] = [
+          { key: "start", label: `${home} (start)`, done: pr.started, badge: "S" },
+          ...stations.map((st: any) => ({ key: st.id, label: stationLabel(st, wp), done: pr.done.has(st.id), badge: String(st.number) })),
+          { key: "finish", label: `${home} (finish)`, done: pr.finished, badge: "F" },
+        ];
+        return (
+          <>
+            <div className="card p-5 border-brand space-y-3">
+              <div className="text-xl font-bold">You are in. Your sensor is recording.</div>
+              <ol className="space-y-2 list-decimal ml-5">
+                <li><b>Start at {home}:</b> scan the {home} sign, then set the sensor down inside the circle for 10 seconds.</li>
+                <li><b>Visit all {stations.length} {wp}s</b>{anyOrder ? " in any order" : ", in number order"}. At each one: scan the sign, then set the sensor down inside the circle for 10 seconds, hands off.</li>
+                <li><b>Finish at {home}:</b> scan the {home} sign again, set the sensor down for 10 seconds, then hand it to booth staff.</li>
+              </ol>
+              <div className="text-sm text-muted">Each scan page has a 10-second timer and tells you what to do next. Keep using this phone and browser.</div>
+              {c?.par_s && <div>Crew time to beat: <b className="text-brand tabular">{fmtTime(c.par_s, 0)}</b></div>}
             </div>
-          )}
-        </>
-      )}
+            {c && (
+              <div className="card p-5">
+                <div className="flex justify-between items-baseline mb-2">
+                  <div className="font-bold">Your progress</div>
+                  {c.uses_qr && <div className="text-muted text-sm">{pr.done.size} of {pr.total} {wp}s scanned</div>}
+                </div>
+                <ul className="space-y-1">
+                  {rows.map((r) => (
+                    <li key={r.key} className="flex items-center gap-3">
+                      <span className={`w-7 h-7 rounded-full grid place-items-center font-bold text-sm ${r.done ? "bg-good text-black" : "bg-panel-2 text-muted"}`}>
+                        {r.done ? "✓" : r.badge}
+                      </span>
+                      <span className={r.done ? "" : "text-muted"}>{r.label}</span>
+                    </li>
+                  ))}
+                </ul>
+                {pr.allDone && !pr.finished && <div className="mt-3 text-good font-semibold">All {wp}s done! Head back to {home} to finish.</div>}
+                {pr.finished && <div className="mt-3 text-good font-semibold">Finished! Hand the sensor to booth staff; your results appear here within a minute.</div>}
+              </div>
+            )}
+            <HuntFaq anyOrder={anyOrder} />
+          </>
+        );
+      })()}
 
       {(data.status === "processing" || data.status === "needs_review") && (
         <div className="card p-5">
@@ -83,7 +101,14 @@ export default function Me({ params }: { params: Promise<{ token: string }> }) {
             <Tile label="Steadiest hands" value={res.metrics.vibration_rms_g != null ? `${(res.metrics.vibration_rms_g * 1000).toFixed(1)} mg` : "--"} sub="vibration while walking" />
             <Tile label="Top speed" value={res.metrics.top_speed_mps != null ? `${(res.metrics.top_speed_mps * 3.6).toFixed(1)} km/h` : "--"} />
           </div>
-          {c && res.route?.x?.length > 1 && (
+          {staticMap != null && (
+            <div className="card p-3">
+              <div className="font-bold mb-2 px-1">The course</div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={`${apiBase()}/api/static-map?v=${staticMap}`} alt="course map" className="w-full rounded" />
+            </div>
+          )}
+          {staticMap == null && c && res.route?.x?.length > 1 && (
             <div className="card p-3">
               <div className="font-bold mb-2 px-1">Your route, replayed</div>
               <Replay

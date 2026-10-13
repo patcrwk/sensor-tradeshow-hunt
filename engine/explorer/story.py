@@ -153,6 +153,16 @@ def r_gps(b: Bundle, a: dict, **_):
               {"channel": "gps", "method": "length of quality-filtered GPS track"})]
 
 
+@rule("track_distance")
+def r_track(b: Bundle, a: dict, **_):
+    tr = a.get("track") or {}
+    if not tr.get("available"):
+        return []
+    how = "fitted to the course stations" if tr.get("source") == "run" else "from steps and heading"
+    return [H(None, f"Walked about {tr['distance_m']:.0f} m", f"route reconstructed {how} (no GPS)", "info",
+              {"channel": "accel, gyro", "method": "step detection and integrated heading"})]
+
+
 def build_story(b: Bundle, analysis: dict, profile: dict, annotations: list[dict] | None = None) -> dict:
     items = []
     for spec in profile.get("story_rules", []):

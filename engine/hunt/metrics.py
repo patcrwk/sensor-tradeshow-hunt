@@ -51,13 +51,16 @@ def run_metrics(b: Bundle, route: pd.DataFrame, steps, t0: float, t1: float, cfg
             s = g["speed"].rolling(5, center=True, min_periods=3).median()
             speed = float(np.nanmax(s)) if len(s) else None
             out["top_speed_source"] = {"channel": "gps", "method": "5-fix rolling median of GPS speed"}
-    if speed is None and len(route) > 10:
-        r = route.copy()
-        d = np.hypot(np.diff(r["x"]), np.diff(r["y"]))
-        dt = np.diff(r["t"])
-        v = pd.Series(np.where(dt > 0, d / np.maximum(dt, 1e-3), 0)).rolling(9, center=True, min_periods=3).median()
-        speed = float(np.nanmax(v)) if len(v) else None
-        out["top_speed_source"] = {"method": "route derivative, rolling median"}
+    if speed is None and len(steps.t) > 10:
+        # No GPS: a reconstructed route is fitted between stations, which stretches some
+        # legs, so its slope overstates speed. Count steps instead: the fastest 10 s of
+        # walking, times the step length.
+        ts = steps.t[(steps.t >= t0) & (steps.t <= t1)]
+        if len(ts) > 10:
+            win = 10.0
+            counts = np.searchsorted(ts, ts + win) - np.arange(len(ts))
+            speed = float(counts.max() * cfg.steps.step_length_m / win)
+            out["top_speed_source"] = {"channel": "accel", "method": "most steps in any 10 s, times step length"}
     if speed is not None:
         out["top_speed_mps"] = round(min(speed, 4.0), 2)
 

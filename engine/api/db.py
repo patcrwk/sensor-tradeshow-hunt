@@ -151,6 +151,7 @@ class Recording(SQLModel, table=True):
     profile: str = "generic"
     annotations: Any = Field(default=None, sa_column=Column(JSON))
     in_library: bool = False
+    run_id: Optional[int] = Field(default=None, index=True)   # set when it came back from the hunt
     status: str = "processing"     # processing | ready | error
     analysis_path: Optional[str] = None
     error: Optional[str] = None

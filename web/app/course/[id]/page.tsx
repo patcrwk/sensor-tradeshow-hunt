@@ -5,6 +5,7 @@ import CourseMap, { RouteLegend } from "@/components/CourseMap";
 import { ErrorBox, Page, StatusPill, Tabs } from "@/components/Nav";
 import { api, apiBase, upload, useApi } from "@/lib/api";
 import { fmtM, fmtTime, MODE_LABEL } from "@/lib/format";
+import { confirmDeleteCourse } from "@/lib/deleteCourse";
 
 const METHODS = [
   { id: "gps", label: "GPS position" },
@@ -50,6 +51,7 @@ export default function CoursePage({ params }: { params: Promise<{ id: string }>
         {!editable && <button className="btn" onClick={async () => { const n = await api(`/api/courses/${id}/new-version`, { method: "POST" }); router.push(`/course/${n.id}`); }}>Edit as new version</button>}
         {d && <a className="btn" href={`/course/${id}/qr`} target="_blank">Print QR signs</a>}
         <a className="btn" href={`${apiBase()}/api/courses/${id}/export`}>Export package</a>
+        {!c.active && <button className="btn btn-danger" onClick={async () => { if (await confirmDeleteCourse(c)) router.push("/course"); }}>Delete course</button>}
       </>}>
       <ErrorBox error={err || c.error} />
       {msg && <div className="text-good mb-3">{msg}</div>}
@@ -127,6 +129,21 @@ function MapTab({ c, d, editable, patch }: { c: any; d: any; editable: boolean; 
           onStationMove={(sid, x, y) => patch({ stations: [{ id: sid, x, y }] })} />
         <div className="mt-2"><RouteLegend /></div>
         {editable && <div className="text-sm text-muted mt-1">Drag a station to correct its position. Shaded circles show each station's measured accuracy; dashed circles show the matching radius.</div>}
+        {!d.frame && (
+          <div className="mt-3 p-3 rounded-lg border border-line">
+            <div className="font-semibold">Line the map up with the hall</div>
+            <div className="text-sm text-muted mb-2">This course was mapped without GPS, so the sensor knows the shape of the walk but not which way is north.
+              Turn or flip it until it matches the real floor (Home Base is the pivot).{!editable && " Use \"Edit as new version\" to change a published course."}</div>
+            {editable && <div className="flex gap-2 flex-wrap">
+              <button className="btn text-sm" onClick={() => patch({ rotate_deg: 90 })}>Turn left 90°</button>
+              <button className="btn text-sm" onClick={() => patch({ rotate_deg: -90 })}>Turn right 90°</button>
+              <button className="btn text-sm" onClick={() => patch({ rotate_deg: 15 })}>Left 15°</button>
+              <button className="btn text-sm" onClick={() => patch({ rotate_deg: -15 })}>Right 15°</button>
+              <button className="btn text-sm" onClick={() => patch({ rotate_deg: 180 })}>Turn 180°</button>
+              <button className="btn text-sm" onClick={() => patch({ mirror: true })}>Flip (mirror)</button>
+            </div>}
+          </div>
+        )}
       </div>
       <div className="card p-4">
         <h2 className="text-xl font-bold mb-2">Stations</h2>

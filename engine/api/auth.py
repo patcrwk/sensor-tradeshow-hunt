@@ -26,6 +26,7 @@ PUBLIC_GET = [re.compile(p) for p in (
     r"^/api/p/[\w-]+$",
     r"^/api/qr/station/[\w-]+$",
     r"^/api/auth/me$",
+    r"^/api/static-map$",
 )]
 PUBLIC_POST = [re.compile(p) for p in (
     r"^/api/auth/(login|logout)$",

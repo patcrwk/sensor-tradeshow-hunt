@@ -228,6 +228,10 @@ def process(run_id: int, course_id: int | None = None) -> Run:
     bus.publish("run", {"run_id": run_id, "status": run.status})
     if run.status == "published":
         bus.publish("leaderboard", {})
+    try:
+        ensure_run_recording(run_id)
+    except Exception:
+        log.exception("could not add the run to Recording Explorer")
     return run
 
 
@@ -330,6 +334,7 @@ def derive(course_id: int, mode: str | None = None) -> Course:
                 doc["qr_codes"] = {**doc.get("qr_codes", {}), **c.data["qr_codes"]}
         if doc is not None:
             apply_plan(doc)
+            apply_station_term(doc)
         c.data = doc
         c.status = status
         c.error = err
@@ -369,6 +374,9 @@ def edit_course(course_id: int, patch: dict) -> Course:
     for k in ("order_rule", "match_radius_m", "identity_methods", "positioning_mode"):
         if k in patch:
             doc[k] = patch[k]
+    if patch.get("rotate_deg") or patch.get("mirror"):
+        _orient_course(doc, float(patch.get("rotate_deg") or 0), bool(patch.get("mirror")))
+        moved = True
     if "par_time_s" in patch:
         doc["par"]["par_time_s"] = patch["par_time_s"]
         doc["par"]["edited"] = True
@@ -464,6 +472,39 @@ def apply_plan(doc: dict, plan: dict | None = None) -> bool:
     return changed
 
 
+def apply_station_term(doc: dict) -> None:
+    """Default names follow the sign wording: "Waypoint 3" rather than "Station 3"."""
+    term = (get_setting("branding") or {}).get("station_term") or "Waypoint"
+    for st in doc.get("stations", []):
+        if st.get("name") == f"Station {st.get('number')}":
+            st["name"] = f"{term} {st['number']}"
+
+
+def _orient_course(doc: dict, rotate_deg: float, mirror: bool) -> None:
+    """Turn or flip the whole course map about the booth. Without GPS the compass direction of
+    a mapped course is unknown, so staff line it up with the hall by eye."""
+    import math
+    bx, by = doc["booth"]["x"], doc["booth"]["y"]
+    a = math.radians(rotate_deg)
+    c, s_ = math.cos(a), math.sin(a)
+
+    def tf(x, y):
+        x, y = x - bx, y - by
+        if mirror:
+            x = -x
+        return round(c * x - s_ * y + bx, 2), round(s_ * x + c * y + by, 2)
+
+    for st in doc["stations"]:
+        st["x"], st["y"] = tf(st["x"], st["y"])
+    r = doc.get("route") or {}
+    if r.get("x"):
+        pts = [tf(x, y) for x, y in zip(r["x"], r["y"])]
+        r["x"], r["y"] = [p[0] for p in pts], [p[1] for p in pts]
+    o = doc.setdefault("orientation_edit", {"rotate_deg": 0, "mirror": False})
+    o["rotate_deg"] = (o["rotate_deg"] + rotate_deg) % 360
+    o["mirror"] = o["mirror"] != mirror
+
+
 def publish_course(course_id: int) -> Course:
     with session() as s:
         c = s.get(Course, course_id)
@@ -482,6 +523,54 @@ def publish_course(course_id: int) -> Course:
     audit("course_publish", f"v{c.version}", course_id=course_id)
     bus.publish("course", {"course_id": course_id, "active": True})
     return c
+
+
+class CourseInUse(Exception):
+    pass
+
+
+def delete_course(course_id: int, force: bool = False) -> dict:
+    """Delete a course and the survey recordings only it uses. Runs scored against it keep
+    their results (times, check-ins, routes) but lose the link to the course map."""
+    if get_setting("active_course_id") == course_id:
+        raise CourseInUse("This is the active course. Make another course active (or none) in Admin first.")
+    with session() as s:
+        c = s.get(Course, course_id)
+        if not c:
+            raise KeyError("course not found")
+        runs = s.exec(select(Run).where(Run.course_id == course_id)).all()
+        if runs and not force:
+            raise CourseInUse(f"{len(runs)} run(s) were scored against this course. They keep their results but "
+                              "lose the course map. Delete anyway?")
+        for r in runs:
+            r.course_id = None
+            s.add(r)
+        files = s.exec(select(SurveyFile).where(SurveyFile.course_id == course_id)).all()
+        survey_ids = {f.upload_id for f in files}
+        for f in files:
+            s.delete(f)
+        bg = (c.data or {}).get("background") or {}
+        name, version = c.name, c.version
+        s.delete(c)
+        s.commit()
+        # Survey recordings no longer used by anything else are removed too
+        removed = 0
+        still_used = {f.upload_id for f in s.exec(select(SurveyFile)).all()}
+        still_used |= {r.upload_id for r in s.exec(select(Run)).all() if r.upload_id}
+        still_used |= {r.upload_id for r in s.exec(select(Recording)).all()}
+        for uid in survey_ids - still_used:
+            up = s.get(Upload, uid)
+            if up:
+                shutil.rmtree(dirs()["bundles"] / up.sha256[:16], ignore_errors=True)
+                storage.delete(up.path)
+                s.delete(up)
+                removed += 1
+        s.commit()
+    storage.delete(bg.get("key"))
+    _bundle.cache_clear()
+    audit("course_delete", f"{name} v{version}; {len(runs)} run(s) unlinked; {removed} survey file(s) removed")
+    bus.publish("course", {"course_id": course_id, "deleted": True})
+    return {"deleted": course_id, "runs_unlinked": len(runs), "survey_files_removed": removed}
 
 
 def new_version(course_id: int) -> Course:
@@ -547,10 +636,10 @@ def _refit(doc: dict) -> None:
 # -- explorer -------------------------------------------------------------------
 
 def create_recording(upload: Upload, title: str, description: str | None, profile: str,
-                     in_library: bool, annotations: list | None = None) -> Recording:
+                     in_library: bool, annotations: list | None = None, run_id: int | None = None) -> Recording:
     with session() as s:
         r = Recording(upload_id=upload.id, title=title, description=description, profile=profile,
-                      in_library=in_library, annotations=annotations or [])
+                      in_library=in_library, annotations=annotations or [], run_id=run_id)
         s.add(r)
         s.commit()
         s.refresh(r)
@@ -563,7 +652,13 @@ def _analyze_safe(rec_id: int) -> None:
         with session() as s:
             r = s.get(Recording, rec_id)
         b = bundle_for(r.upload_id)
-        key = storage.put_json(f"analysis/rec_{rec_id}.json", analyze(b, r.profile, r.annotations))
+        a = analyze(b, r.profile, r.annotations)
+        if r.run_id:
+            t = run_track(r.run_id)
+            if t:
+                a["track"] = t
+                a["story"] = restory(b, a, r.profile, r.annotations)["story"]
+        key = storage.put_json(f"analysis/rec_{rec_id}.json", a)
         for model in ("sensor", "quadcopter"):          # replay depends on the analysis
             storage.delete(f"analysis/rec_{rec_id}_replay_{model}.json")
         with session() as s:
@@ -579,6 +674,48 @@ def _analyze_safe(rec_id: int) -> None:
             s.add(r)
             s.commit()
     bus.publish("recording", {"recording_id": rec_id})
+
+
+def run_track(run_id: int) -> dict | None:
+    """A hunt run's route fitted to its course, for the Explorer map and replay."""
+    with session() as s:
+        run = s.get(Run, run_id)
+        course = s.get(Course, run.course_id) if run and run.course_id else None
+    res = load_result(run) if run else None
+    if not res or not (res.get("route") or {}).get("x"):
+        return None
+    rt = res["route"]
+    d = (course.data or {}) if course else {}
+    from ..position.projection import path_length
+    return {"available": True, "source": "run", "t": rt["t"], "x": rt["x"], "y": rt["y"], "route_source": rt.get("source"),
+            "distance_m": round(path_length(rt["x"], rt["y"]), 1), "run_id": run_id,
+            "course": {"id": course.id, "stations": d.get("stations"), "booth": d.get("booth"),
+                       "background": d.get("background"), "route": d.get("route")} if course else None,
+            "visited": [c.get("station") for c in res.get("checkins", []) if c.get("station")],
+            "note": "Route reconstructed from steps and heading, fitted to the course stations it checked in at."
+                    if res.get("positioning_mode") == "dead_reckoning" else "Route from the hunt run."}
+
+
+def ensure_run_recording(run_id: int) -> None:
+    """Every returned hunt sensor shows up in Recording Explorer (no second upload)."""
+    with session() as s:
+        run = s.get(Run, run_id)
+        p = s.get(Participant, run.participant_id) if run else None
+        up = s.get(Upload, run.upload_id) if run and run.upload_id else None
+        rec = s.exec(select(Recording).where(Recording.upload_id == run.upload_id)).first() if up else None
+    if not up:
+        return
+    if rec is None:
+        create_recording(up, f"{p.display_name if p else 'Participant'}: hunt run",
+                         f"Scavenger hunt run, sensor {run.sensor_serial}.", "hunt", False, run_id=run_id)
+    else:
+        if rec.run_id != run_id:
+            with session() as s:
+                r = s.get(Recording, rec.id)
+                r.run_id = run_id
+                s.add(r)
+                s.commit()
+        POOL.submit(_analyze_safe, rec.id)      # route may have changed (overrides, rescore)
 
 
 def recording_analysis(rec: Recording) -> dict | None:

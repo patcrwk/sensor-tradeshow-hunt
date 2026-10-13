@@ -275,11 +275,14 @@ def default_methods(course: dict, cfg=None) -> list[str]:
         m.append("orientation")
     if course.get("taps_used_for_numbering"):
         m.append("taps")
-    if st and all(s.get("beacon_hz") for s in st):
+    # Beacons are opt-in: high-rate channels can show tone-like peaks by chance
+    if cfg.beacons.enabled_default and st and all(s.get("beacon_hz") for s in st):
         m.append("beacon")
-    if not m and q.get("stations_with_fix"):
-        m.append("gps")          # poor GPS is still better than no identity at all
-    return m or ["orientation"]
+    if not m:
+        # No usable GPS, no distinct holders, no tap codes: the stations are told apart
+        # by phone scans of the printed QR signs (the sensor rest still proves the stop).
+        m.append("qr")
+    return m
 
 
 def spacing_warnings(course: dict, cfg=None) -> list[str]:

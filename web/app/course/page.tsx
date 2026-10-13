@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ErrorBox, Page, StatusPill } from "@/components/Nav";
 import { upload, useApi } from "@/lib/api";
 import { MODE_LABEL } from "@/lib/format";
+import { confirmDeleteCourse } from "@/lib/deleteCourse";
 
 export default function Courses() {
   const router = useRouter();
@@ -80,7 +81,11 @@ export default function Courses() {
                   <td>{c.stations ?? "--"}</td>
                   <td className="text-sm">{c.mode ? MODE_LABEL[c.mode] : "--"}</td>
                   <td className="text-sm">{c.quality ?? "--"}</td>
-                  <td><Link href={`/course/${c.id}`} className="btn text-sm">Open</Link></td>
+                  <td className="whitespace-nowrap text-right">
+                    <Link href={`/course/${c.id}`} className="btn text-sm">Open</Link>
+                    {!c.active && <button className="btn btn-danger text-sm ml-2" title="Delete this course"
+                      onClick={async () => { if (await confirmDeleteCourse(c)) list.reload(); }}>Delete</button>}
+                  </td>
                 </tr>
               ))}
             </tbody>

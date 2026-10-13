@@ -133,6 +133,7 @@ def anchor_legs(path: pd.DataFrame, anchors: list[dict], cfg=None) -> tuple[pd.D
     cfg = cfg or get_config()
     dr = cfg.dead_reckoning
     out, notes = [], []
+    last_rot = 0.0
     for i in range(len(anchors) - 1):
         a, b = anchors[i], anchors[i + 1]
         ta, tb = a["t_end"], b["t_start"]
@@ -142,11 +143,30 @@ def anchor_legs(path: pd.DataFrame, anchors: list[dict], cfg=None) -> tuple[pd.D
         ra, rb = np.array(position_at(path, ta)), np.array(position_at(path, tb))
         dv, target = rb - ra, pb - pa
         ok = n_steps >= dr.min_leg_steps and np.linalg.norm(dv) > 0.5
+        loop = np.linalg.norm(target) < 3.0          # leg returns to (nearly) the same place
+        if ok and loop:
+            # Fitting a leg onto a zero-length target would squash it to a point. Keep the
+            # walked shape at true scale (heading from the previous leg) and spread the
+            # drift back along it so it closes on the anchor.
+            c, s_ = np.cos(last_rot), np.sin(last_rot)
+            P = np.column_stack([seg["x"], seg["y"]]) - ra
+            Q = np.column_stack([c * P[:, 0] - s_ * P[:, 1], s_ * P[:, 0] + c * P[:, 1]]) + pa
+            if len(Q):
+                d = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(Q, axis=0).T))])
+                frac = (d / d[-1])[:, None] if d[-1] > 0 else np.zeros((len(Q), 1))
+                Q = Q - (Q[-1] - pb) * frac
+            pts = np.vstack([pa, Q, pb])
+            ts = np.concatenate([[ta], seg["t"].to_numpy(), [tb]])
+            out.append(pd.DataFrame({"t": [a["t_start"]], "x": [pa[0]], "y": [pa[1]], "source": ["reconstructed"], "leg": [i]}))
+            out.append(pd.DataFrame({"t": ts, "x": pts[:, 0], "y": pts[:, 1], "source": "reconstructed", "leg": i}))
+            notes.append({"leg": i, "steps": n_steps, "loop": True, "fallback": False})
+            continue
         scale = np.linalg.norm(target) / np.linalg.norm(dv) if ok else 0
-        if ok and not (dr.min_scale <= scale <= dr.max_scale) and np.linalg.norm(target) > 3:
+        if ok and not (dr.min_scale <= scale <= dr.max_scale):
             ok = False
         if ok:
             rot = np.arctan2(target[1], target[0]) - np.arctan2(dv[1], dv[0])
+            last_rot = rot
             c, s = np.cos(rot) * scale, np.sin(rot) * scale
             P = np.column_stack([seg["x"], seg["y"]]) - ra
             Q = np.column_stack([c * P[:, 0] - s * P[:, 1], s * P[:, 0] + c * P[:, 1]]) + pa

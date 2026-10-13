@@ -14,7 +14,7 @@ def candidate_runs(serial, start_epoch: float | None, open_runs: list[dict]) -> 
     """
     out = []
     for r in open_runs:
-        if str(r["serial"]) != str(serial):
+        if norm_serial(r["serial"]) != norm_serial(serial):
             continue
         if start_epoch is None:
             out.append({**r, "score": 0.5, "reason": "serial matches; recording has no start time"})
@@ -28,6 +28,13 @@ def candidate_runs(serial, start_epoch: float | None, open_runs: list[dict]) -> 
                         "reason": "serial matches, but recording started before check-out"})
     out.sort(key=lambda r: (-r["score"], abs(r.get("lead_s", 0))))
     return out
+
+
+def norm_serial(s) -> str:
+    """Sensor labels and files write serials differently ("S0014201", "SN 14201", "14201")."""
+    import re
+    digits = re.sub(r"\D", "", str(s or ""))
+    return digits.lstrip("0") or str(s or "").strip().upper()
 
 
 def _fmt(s: float) -> str:

@@ -52,7 +52,7 @@ export default function Home() {
         <div className="flex flex-wrap items-baseline justify-between gap-4 mb-6">
           <h2 className="text-3xl font-extrabold">Join the {b?.event_name || "Sensor Scavenger Hunt"}</h2>
           <div className="flex gap-6 text-lg">
-            {stations ? <span><b className="text-brand">{stations}</b> stations</span> : null}
+            {stations ? <span><b className="text-brand">{stations}</b> Waypoints</span> : null}
             {par ? <span>Crew time to beat <b className="text-brand tabular">{fmtTime(par, 0)}</b></span> : null}
             {leader ? <span>Leader <b className="text-accent">{leader.name}</b> <span className="tabular">{fmtTime(leader.value)}</span></span> : null}
           </div>
@@ -60,7 +60,7 @@ export default function Home() {
         <ol className="grid md:grid-cols-3 gap-5">
           {[
             ["Pick up a sensor", "Grab one at the booth. It is already recording."],
-            ["Find every station", "At each marker, set the sensor down and keep it perfectly still for 10 seconds. It knows the difference between resting on a table and held in your hand."],
+            ["Hit every stop", "Start at Home Base, visit every Waypoint, finish at Home Base. At each sign, scan the QR code with your phone, then set the sensor down for 10 seconds. It knows the difference between resting on a table and held in your hand."],
             ["Bring it back", "Plug it in and watch your results land on the big screen: your time, route, steps, and how steady your hands were."],
           ].map(([t, d], i) => (
             <li key={t} className="flex gap-4">
