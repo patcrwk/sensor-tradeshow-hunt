@@ -88,6 +88,7 @@ export function HuntFaq({ anyOrder = true }: { anyOrder?: boolean }) {
   const qa: [string, string][] = [
     [`Do I have to visit the ${wp}s in order?`, anyOrder ? `No, any order works. Just visit every one and finish at ${home}.` : `Yes: go in number order, 1, 2, 3 and so on, then back to ${home}.`],
     ["Can I hold the sensor while I count?", "No. Set it down flat inside the circle and take your hand away. The sensor can tell the difference between resting on a table and being held, and a held sensor does not count."],
+    ["Do I need my camera app?", "No. Tap \"Scan next sign\" on this page: it opens the camera right here, so you never leave the hunt. The first time, allow camera access when your phone asks. Your camera app works too."],
     ["How long do I leave it?", "10 seconds, hands off. Use the timer on the scan page, then pick it up and keep going."],
     ["I scanned but forgot to set the sensor down (or picked it up too early).", "Set it down again for 10 seconds at the same sign. You do not need to scan again."],
     ["I set the sensor down but forgot to scan.", "Scan the sign now, then set the sensor down for another 10 seconds."],

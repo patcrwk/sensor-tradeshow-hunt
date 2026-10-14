@@ -11,6 +11,7 @@
     "@fontsource/orbitron": "^5.3.0",
     "@fontsource/rajdhani": "^5.3.0",
     "@types/qrcode": "^1.5.6",
+    "jsqr": "^1.4.0",
     "next": "15.5.26",
     "qrcode": "^1.5.4",
     "react": "19.1.0",

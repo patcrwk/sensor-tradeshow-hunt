@@ -1,8 +1,10 @@
 "use client";
+import { useRouter } from "next/navigation";
 import { use, useEffect } from "react";
 import { useSettings } from "@/components/BrandProvider";
 import { HuntFaq, progress, stationLabel, useTerms } from "@/components/HuntGuide";
 import PhoneShell, { saveToken } from "@/components/PhoneShell";
+import { ScanButton } from "@/components/QrScanner";
 import Replay from "@/components/Replay";
 import { apiBase, useApi } from "@/lib/api";
 import { fmtM, fmtNum, fmtTime } from "@/lib/format";
@@ -10,6 +12,7 @@ import { fmtM, fmtNum, fmtTime } from "@/lib/format";
 /** A participant's own page: opened from the QR code at check-out. */
 export default function Me({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
+  const router = useRouter();
   useEffect(() => saveToken(token), [token]);
   const { data, error } = useApi<any>(`/api/p/${token}`, ["scan", "run", "leaderboard"], 20000);
   const { home, wp, booth } = useTerms();
@@ -69,6 +72,10 @@ export default function Me({ params }: { params: Promise<{ token: string }> }) {
                 {pr.allDone && !pr.finished && <div className="mt-3 text-good font-semibold">All {wp}s done! Head back to {home} to finish.</div>}
                 {pr.finished && <div className="mt-3 text-good font-semibold">Finished! Hand the sensor to booth staff; your results appear here within a minute.</div>}
               </div>
+            )}
+            {c?.uses_qr && !pr.finished && (
+              <ScanButton label={!pr.started ? `Scan the ${home} sign to start` : pr.allDone ? `Scan the ${home} sign to finish` : "Scan next sign"}
+                onResult={(t) => router.push(t.kind === "station" ? `/s/${t.code}` : `/p/${t.token}`)} />
             )}
             <HuntFaq anyOrder={anyOrder} />
           </>

@@ -55,6 +55,10 @@
   review.
 - Sensor serials can be typed as printed on the label (S0014201); they match the
   file's 14201.
+- Recommended survey (Oct 13): walk it with the **S4D40**, then in Course Setup
+  turn/flip the map to match the hall and drag any waypoint that sits in the
+  wrong place. Participant routes are fitted to the waypoints, so they line up
+  with whatever you set. Both sensor models work for participants.
 
 ## 2b. QR check-ins (GPS fallback, needs the hosted app)
 
@@ -87,6 +91,11 @@ the sensor's 10 second rest still proves the stop.
    it opens their personal hunt page and links their phone to their run.
    ("Phone QR" in the Out on the course list shows it again.)
 5. At each station: scan the sign, then rest the sensor for 10 seconds.
+   Participants can scan with the **Scan next sign** button on their hunt page
+   (opens the camera inside the page, so they never leave it) or with the phone
+   camera app. The first time, the phone asks to allow the camera. If a phone
+   reopens an old tab of the same sign (common with Home Base, scanned at the
+   start and finish), the page records the scan again when it comes back.
 6. Scans are matched to the sensor's rests automatically, even if the sensor
    clock is a few minutes off. The run page lists every scan and whether it
    paired with a rest. A scan with no rest near it does not count.
