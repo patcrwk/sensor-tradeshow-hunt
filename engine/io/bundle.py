@@ -10,6 +10,10 @@ Every recording (real .IDE or synthetic) becomes a directory:
                               t, lat, lon and optional alt, speed, fix, sats,
                               hdop, acc, gps_time
     ground_truth.json         optional, synthetic files only
+    env_<id>.parquet          long recordings only: min/max envelope of an
+                              averaged channel (columns <col>__min, <col>__max)
+    full_<id>.json / .npz     long recordings only: statistics measured on the
+                              full-rate data (see io/reduce.py)
 
 Roles map a purpose to a channel id so the detectors never depend on
 specific enDAQ channel numbers:
@@ -85,6 +89,49 @@ class Bundle:
         if "gps" not in self._cache:
             self._cache["gps"] = pd.read_parquet(self.path / "gps.parquet")
         return self._cache["gps"]
+
+    @property
+    def reduced(self) -> bool:
+        return bool(self.meta.get("reduced"))
+
+    def envelope(self, ch_id) -> pd.DataFrame | None:
+        p = self.path / f"env_{ch_id}.parquet"
+        if not p.exists():
+            return None
+        key = f"env_{ch_id}"
+        if key not in self._cache:
+            self._cache[key] = pd.read_parquet(p)
+        return self._cache[key]
+
+    def fullrate(self, ch_id) -> dict | None:
+        """Full-rate statistics of a channel that was averaged down, or None."""
+        if ch_id is None:
+            return None
+        p = self.path / f"full_{ch_id}.json"
+        if not p.exists():
+            return None
+        key = f"full_{ch_id}"
+        if key not in self._cache:
+            self._cache[key] = json.loads(p.read_text())
+        return self._cache[key]
+
+    def peak_windows(self, ch_id) -> list[pd.DataFrame]:
+        """Full-rate x/y/z around each fullrate() event, indexed by time."""
+        p = self.path / f"full_{ch_id}.npz"
+        if not p.exists():
+            return []
+        z = np.load(p)
+        out = []
+        for i in range(len(self.fullrate(ch_id).get("events", []))):
+            if f"t{i}" in z:
+                out.append(pd.DataFrame(z[f"x{i}"].astype(np.float64), index=pd.Index(z[f"t{i}"], name="t"),
+                                        columns=["x", "y", "z"]))
+        return out
+
+    def vibration(self, role: str) -> dict | None:
+        """Band-limited vibration RMS (10 Hz) measured at full rate, when available."""
+        fr = self.fullrate(self.roles.get(role))
+        return fr.get("vibration") if fr else None
 
     def ground_truth(self) -> dict | None:
         p = self.path / "ground_truth.json"

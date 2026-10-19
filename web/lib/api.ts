@@ -41,6 +41,46 @@ export async function upload<T = any>(path: string, form: FormData): Promise<T> 
   return api<T>(path, { method: "POST", body: form });
 }
 
+export type UploadProgress = { phase: "upload" | "processing"; fraction: number; retrying?: boolean };
+
+/** Upload a recording of any size: the file is sent in pieces (each well under the
+    hosting limits), resent piece by piece if the Wi-Fi drops, then read on the
+    server in the background. Resolves with the new recording's id. */
+export async function uploadRecording(file: File, meta: { title: string; description: string; profile: string; in_library: boolean },
+                                      onProgress: (p: UploadProgress) => void): Promise<number> {
+  const job = await api<any>("/api/uploads/chunked", { json: { filename: file.name, size: file.size, ...meta } });
+  const piece: number = job.chunk_bytes;
+  let offset = 0;
+  let failures = 0;
+  onProgress({ phase: "upload", fraction: 0 });
+  while (offset < file.size) {
+    const end = Math.min(offset + piece, file.size);
+    try {
+      const r = await api<any>(`/api/uploads/chunked/${job.id}?offset=${offset}`, {
+        method: "PUT", body: file.slice(offset, end), headers: { "Content-Type": "application/octet-stream" } });
+      offset = r.received;
+      failures = 0;
+      onProgress({ phase: "upload", fraction: offset / file.size });
+    } catch (e: any) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 400 || e.status === 413)) throw e;
+      if (++failures > 8) throw new Error(`Upload stopped at ${Math.round((offset / file.size) * 100)}%: ${e.message || "network error"}. Check the Wi-Fi and try again.`);
+      onProgress({ phase: "upload", fraction: offset / file.size, retrying: true });
+      await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** failures, 15000)));
+      try { offset = (await api<any>(`/api/uploads/chunked/${job.id}`)).received; } catch {}
+    }
+  }
+  let st = await api<any>(`/api/uploads/chunked/${job.id}/finish`, { method: "POST" });
+  while (st.status === "processing") {
+    onProgress({ phase: "processing", fraction: st.progress || 0 });
+    await new Promise((r) => setTimeout(r, 1500));
+    try { st = await api<any>(`/api/uploads/chunked/${job.id}`); } catch (e: any) {
+      if (e instanceof ApiError && e.status === 404) throw new Error("The server restarted while reading the file. Upload it again.");
+    }
+  }
+  if (st.status !== "done") throw new Error(st.error || "Could not read the file");
+  return st.recording_id;
+}
+
 // One shared EventSource per page. Browsers allow only ~6 connections per host,
 // so a stream per hook would starve ordinary fetches.
 type Msg = { kind: string; [k: string]: any };

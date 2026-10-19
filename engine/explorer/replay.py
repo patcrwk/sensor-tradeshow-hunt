@@ -108,6 +108,11 @@ def attitude(b: Bundle, fps: float, cfg, kp: float = 1.0, ki: float = 0.02) -> d
 
 def activity(b: Bundle, t: np.ndarray, band=(50.0, 500.0)) -> np.ndarray | None:
     role = "hf_accel" if b.roles.get("hf_accel") else "accel"
+    vib = b.vibration(role)
+    if vib:                                    # long recording: measured at full rate
+        rms = np.asarray(vib["rms_g"], dtype=np.float64)
+        ref = np.percentile(rms, 98) or 1.0
+        return np.clip(np.interp(t, vib["t"], rms) / ref, 0, 1.2)
     df = b.role(role)
     if df is None or len(df) < 100:
         return None

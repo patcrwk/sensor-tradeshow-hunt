@@ -11,7 +11,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ..config import get_config
 from . import bundle as B
+from . import reduce as R
 from .channel_discovery import (ChannelInfo, SubInfo, assign_roles, column_name,
                                 measurement_type)
 
@@ -51,6 +53,13 @@ def _channel_arrays(ch) -> tuple[np.ndarray, np.ndarray]:
         df = endaq.ide.to_pandas(ch, time_mode="seconds")
         t = np.asarray(df.index, dtype=np.float64) * 1e6
         return t, df.to_numpy(dtype=np.float64).T
+
+
+def _count(ch) -> int:
+    try:
+        return len(ch.getSession())
+    except Exception:
+        return 0
 
 
 def discover(doc) -> list[ChannelInfo]:
@@ -133,8 +142,9 @@ def session_start(doc) -> float | None:
 
 
 def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None = None,
-                  hf_decimate_to_hz: float | None = None) -> B.Bundle:
-    """Parse src .IDE into out_dir. Returns the bundle."""
+                  progress=None) -> B.Bundle:
+    """Parse src .IDE into out_dir. Returns the bundle. Long recordings are read in
+    slices (see reduce.py); progress(fraction) is called while they are read."""
     t_start = time.time()
     src = Path(src)
     out = Path(out_dir)
@@ -147,22 +157,48 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
     chans = discover(doc)
     roles = assign_roles(chans)
 
+    counts = {c.id: _count(doc.channels[c.id]) for c in chans}
+    factors = R.plan(counts, get_config())
     raw: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for c in chans:
-        raw[c.id] = _channel_arrays(doc.channels[c.id])
+        if not factors or factors[c.id] == 1:
+            raw[c.id] = _channel_arrays(doc.channels[c.id])
     firsts = [v[0][0] for v in raw.values() if len(v[0])]
+    if factors:
+        firsts += [float(doc.channels[c.id].getSession().arraySlice(0, 1)[0][0])
+                   for c in chans if factors[c.id] > 1 and counts[c.id]]
     t0_us = min(firsts) if firsts else 0.0
 
     ch_meta = []
     t_end = 0.0
+    done, total = 0, max(sum(counts.values()), 1)
+    stat_ids = {roles.get("accel"), roles.get("hf_accel")}
     for c in chans:
-        t_us, vals = raw[c.id]
-        t = (t_us - t0_us) / 1e6
-        cols = {s.column: vals[s.index] for s in c.subs if s.index < len(vals)}
-        n = B.write_channel(tmp, c.id, t, cols)
-        if n:
-            t_end = max(t_end, float(t[-1]))
         d = c.to_dict()
+        if c.id in raw:
+            t_us, vals = raw[c.id]
+            t = (t_us - t0_us) / 1e6
+            cols = {s.column: vals[s.index] for s in c.subs if s.index < len(vals)}
+            n = B.write_channel(tmp, c.id, t, cols)
+            if n:
+                t_end = max(t_end, float(t[-1]))
+        else:
+            k = factors[c.id]
+            colnames = [(s.index, s.column) for s in c.subs]
+            stats = c.id in stat_ids and len(c.subs) >= 3 and [s.column for s in c.subs[:3]] == ["x", "y", "z"]
+            base = done
+            df, n_src = R.stream_channel(
+                doc.channels[c.id].getSession(), colnames, k, t0_us, tmp, c.id, c.rate_hz, get_config(), stats,
+                progress=(lambda f, base=base, n=counts[c.id]: progress((base + f * n) / total)) if progress else None)
+            df.to_parquet(tmp / f"ch_{c.id}.parquet", index=False)
+            n = len(df)
+            if n:
+                t_end = max(t_end, float(df["t"].iloc[-1]))
+            d.update(rate_hz=round(c.rate_hz / k, 3), source_rate_hz=round(c.rate_hz, 3), source_n=n_src,
+                     decimation=k, full_rate_stats=bool(stats))
+        done += counts[c.id]
+        if progress:
+            progress(done / total)
         d["n"] = n
         d["file"] = f"ch_{c.id}.parquet"
         ch_meta.append(d)
@@ -191,6 +227,7 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
         "roles": roles,
         "gps_fields": gps_fields,
         "synthetic": False,
+        "reduced": bool(factors),
         "parse_seconds": round(time.time() - t_start, 2),
     }
     B.write_meta(tmp, meta)
@@ -208,7 +245,7 @@ def _merge_gps(chans, raw, gps_ids, t0_us) -> pd.DataFrame | None:
     """Combine every GPS-related subchannel into one table on the lat/lon timebase."""
     frames = []
     for c in chans:
-        if c.id not in gps_ids:
+        if c.id not in gps_ids or c.id not in raw:
             continue
         t_us, vals = raw[c.id]
         df = pd.DataFrame({"t": (t_us - t0_us) / 1e6})

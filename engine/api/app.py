@@ -25,7 +25,7 @@ from ..explorer.profiles import list_profiles
 from ..explorer.timeseries import window
 from ..hunt import scoring
 from ..hunt.crowd import crowd_stats
-from . import auth, bus, services as S, storage, watcher
+from . import auth, bus, chunked, services as S, storage, watcher
 from .db import (AuditLog, Course, Participant, Recording, Run, Scan, Sensor, SurveyFile, Upload, audit,
                  current_event, get_setting, now, session, set_setting)
 
@@ -868,6 +868,57 @@ async def new_recording(file: UploadFile = File(...), title: str = Form(""), des
         return _rec_dict(existing)
     r = S.create_recording(up, title or Path(up.filename).stem, description or None, profile, in_library)
     return _rec_dict(r)
+
+
+class ChunkedStart(BaseModel):
+    filename: str
+    size: int
+    title: str = ""
+    description: str = ""
+    profile: str = "generic"
+    in_library: bool = False
+
+
+@app.post("/api/uploads/chunked")
+def chunked_start(body: ChunkedStart):
+    """Start a recording upload sent in pieces (any size; used by Recording Explorer)."""
+    try:
+        return chunked.start(body.filename, body.size, body.title, body.description, body.profile, body.in_library)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+
+
+def _job(fn, *a):
+    try:
+        return fn(*a)
+    except KeyError:
+        raise HTTPException(404, "upload not found (it may have expired; start again)")
+    except ValueError as ex:
+        raise HTTPException(409, str(ex))
+
+
+@app.put("/api/uploads/chunked/{job_id}")
+async def chunked_put(job_id: str, request: Request, offset: int = Query(...)):
+    data = await request.body()
+    if len(data) > chunked.chunk_bytes() * 2:
+        raise HTTPException(413, "piece too large")
+    return await asyncio.to_thread(_job, chunked.put, job_id, offset, data)
+
+
+@app.post("/api/uploads/chunked/{job_id}/finish")
+def chunked_finish(job_id: str):
+    return _job(chunked.finish, job_id)
+
+
+@app.get("/api/uploads/chunked/{job_id}")
+def chunked_status(job_id: str):
+    return _job(chunked.get, job_id)
+
+
+@app.delete("/api/uploads/chunked/{job_id}")
+def chunked_cancel(job_id: str):
+    chunked.cancel(job_id)
+    return {"ok": True}
 
 
 @app.get("/api/recordings/{rec_id}")

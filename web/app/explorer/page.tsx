@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ErrorBox, Page, StatusPill } from "@/components/Nav";
-import { upload, useApi } from "@/lib/api";
+import { uploadRecording, UploadProgress, useApi } from "@/lib/api";
 import { useAuth } from "@/components/BrandProvider";
 import { fmtTime } from "@/lib/format";
 
@@ -19,20 +19,26 @@ export default function Explorer() {
   const [save, setSave] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [prog, setProg] = useState<UploadProgress | null>(null);
   const library = recs.data?.filter((r) => r.in_library) || [];
   const others = recs.data?.filter((r) => !r.in_library) || [];
 
   const go = async () => {
     if (!file) return;
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setProg(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file); fd.append("title", title); fd.append("description", desc);
-      fd.append("profile", profile); fd.append("in_library", String(save));
-      const r = await upload("/api/recordings", fd);
-      router.push(`/explorer/${r.id}`);
-    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+      const id = await uploadRecording(file, { title, description: desc, profile, in_library: save }, setProg);
+      router.push(`/explorer/${id}`);
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); setProg(null); }
   };
+
+  // Closing the tab mid-upload would stop it (once it is on the server, it finishes on its own)
+  useEffect(() => {
+    if (prog?.phase !== "upload") return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [prog?.phase]);
 
   return (
     <Page title="Recording Explorer">
@@ -55,7 +61,9 @@ export default function Explorer() {
             {profiles.data?.map((p) => <option key={p.id} value={p.id}>{p.name}: {p.description}</option>)}
           </select>
           <label className="flex gap-2 items-center"><input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} /> Save to the Demo Library</label>
-          <button className="btn btn-primary" disabled={!file || busy} onClick={go}>{busy ? "Reading file..." : "Analyze"}</button>
+          {file && <div className="text-sm text-muted">{fmtSize(file.size)}{file.size > 150e6 ? ": a long recording. Uploading and reading it takes a few minutes." : ""}</div>}
+          <button className="btn btn-primary" disabled={!file || busy} onClick={go}>{busy ? (prog?.phase === "processing" ? "Reading recording..." : "Uploading...") : "Analyze"}</button>
+          {busy && prog && <UploadBar p={prog} />}
           <ErrorBox error={err} />
         </div>
         <div className="card p-6">
@@ -70,6 +78,26 @@ export default function Explorer() {
         </div>
       </div>}
     </Page>
+  );
+}
+
+function fmtSize(b: number) {
+  return b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(0)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`;
+}
+
+function UploadBar({ p }: { p: UploadProgress }) {
+  const pct = Math.round(p.fraction * 100);
+  return (
+    <div className="space-y-1">
+      <div className="h-2 rounded bg-panel-2 overflow-hidden">
+        <div className={`h-full transition-all ${p.phase === "processing" ? "bg-accent" : "bg-brand"}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="text-sm text-muted">
+        {p.phase === "upload"
+          ? (p.retrying ? `Connection dropped at ${pct}%, retrying...` : `Uploading ${pct}%. Keep this tab open until the upload finishes.`)
+          : `Reading the recording ${pct}%. The upload is done: you can leave this page; it appears under Recent uploads when ready.`}
+      </div>
+    </div>
   );
 }
 

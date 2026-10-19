@@ -12,6 +12,9 @@ from .frequency import accel_frame
 
 
 def shock(b: Bundle, role: str = "accel", n_events: int = 8, min_spacing_s: float = 5.0) -> dict:
+    fr = b.fullrate(b.roles.get(role))
+    if fr and fr.get("events"):
+        return _from_fullrate(b, b.roles[role], fr, n_events)
     got = accel_frame(b, role)
     if got is None:
         return {"available": False}
@@ -52,6 +55,45 @@ def shock(b: Bundle, role: str = "accel", n_events: int = 8, min_spacing_s: floa
         "source": {"channel": info["name"],
                    "method": "endaq.calc.stats.find_peaks on the resultant; SRS via endaq.calc.shock.shock_spectrum "
                              "(5% damping) on a 1 s window around each event"},
+    }
+
+
+def _from_fullrate(b: Bundle, ch, fr: dict, n_events: int) -> dict:
+    """A long recording: events were found on every full-rate sample, slice by slice,
+    and a 2 s full-rate window was kept around each one."""
+    info = b.channel_info(ch)
+    fs = fr["fs"]
+    events = sorted(fr["events"], key=lambda e: -e["resultant_g"])[:n_events]
+    events = [{k: round(float(v), 3) for k, v in e.items()} for e in events]
+    wins = {round(float(w.index[len(w) // 2]), 3): w for w in b.peak_windows(ch)}
+    def win_for(t):
+        return min(wins.items(), key=lambda kv: abs(kv[0] - t))[1] if wins else None
+    srs = []
+    for e in events[:3]:
+        w = win_for(e["t"])
+        if w is not None:
+            srs.append(event_srs(w, e["t"], fs))
+    metrics: dict = {}
+    w = win_for(events[0]["t"]) if events else None
+    if w is not None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                m = estats.shock_vibe_metrics(w, include_integration=True, include_resultant=True,
+                                              init_freq=max(2.0, 4 * fs / len(w)), display_plots=False)
+                metrics = _metrics_table(m)
+            except Exception as ex:
+                metrics = {"error": str(ex)}
+    return {
+        "available": True, "channel": info["id"], "channel_name": info["name"],
+        "events": events, "srs": srs, "metrics": metrics,
+        "summary": {"peak_g": events[0]["resultant_g"] if events else None,
+                    "peak_t": events[0]["t"] if events else None,
+                    "vibration_rms_g": round(fr["resultant"]["rms_g"], 4)},
+        "source": {"channel": info["name"],
+                   "method": f"Peaks of the resultant found on every full-rate sample ({fs:.0f} Hz), "
+                             "read in sections; SRS via endaq.calc.shock.shock_spectrum (5% damping) on a 1 s "
+                             "full-rate window around each event"},
     }
 
 

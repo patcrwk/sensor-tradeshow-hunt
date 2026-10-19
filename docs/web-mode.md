@@ -57,14 +57,29 @@ pages (`/p/...`) and station scan pages (`/s/...`). The start script warns in
 
 ### Limits on Heroku
 
-- **Memory.** Parsing and analyzing a large recording (the 37 MB drone file)
-  uses about 1.1 GB in the engine. Use a Standard-2X dyno at minimum, or
-  Performance-M for large Explorer files. Hunt participant files are small.
-  `MALLOC_ARENA_MAX=2` reduces memory fragmentation.
+- **Memory.** Parsing and analyzing the 37 MB drone file uses about 1.1 GB in
+  the engine. Use a Standard-2X dyno at minimum. Hunt participant files are
+  small. `MALLOC_ARENA_MAX=2` reduces memory fragmentation.
+- **Long recordings (any size, e.g. a 300 MB airline flight).** Recording
+  Explorer sends every file in 8 MB pieces, so no single request comes near
+  Heroku's 30 second limit, and a dropped piece is simply resent. Files above
+  8 million samples in total are then read in the background a slice at a
+  time (`engine/io/reduce.py`, settings under `large_recordings` in
+  `config.yaml`). Memory stays at a few hundred MB however long the flight.
+  - Charts, replay and motion use the high-rate channels averaged down to at
+    most 1 million rows per channel. Peak g, shock events, SRS, spectra and
+    engine/motor vibration are measured on every full-rate sample. Chart
+    envelopes keep short spikes visible.
+  - The database keeps the processed recording (tens of MB), not the original
+    file. Keep the original .IDE elsewhere if you may want it again.
+  - The upload must finish with the tab open. After that, the reading
+    continues on the server and the recording appears under Recent uploads.
+    A dyno restart during the reading loses it: upload again.
 - **The drone demo is not in git** (`fixtures/*.IDE` is ignored), so the Demo
   Library starts empty. Upload it through Recording Explorer.
-- **30 second request limit.** Heroku's router ends requests after 30 s. Uploads
-  of normal recordings finish well within that.
+- **30 second request limit.** Heroku's router ends requests after 30 s.
+  Recording Explorer uploads avoid it (see above). Hunt returns and course
+  surveys still upload in one request; their files are small.
 
 ## Other hosts
 

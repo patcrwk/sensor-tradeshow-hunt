@@ -1,11 +1,13 @@
 """Orchestration: uploads, run processing, courses, explorer recordings."""
 from __future__ import annotations
 
+import io
 import json
 import logging
 import shutil
 import threading
 import traceback
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
@@ -50,25 +52,38 @@ def ingest_bytes(filename: str, data: bytes, source_path: str | None = None) -> 
         tmp.unlink(missing_ok=True)
 
 
-def ingest_file(path: Path, filename: str | None = None, source_path: str | None = None) -> Upload:
-    """Hash, store and parse a recording. Re-uploading the same file returns the existing row."""
+def ingest_file(path: Path, filename: str | None = None, source_path: str | None = None,
+                progress=None) -> Upload:
+    """Hash, store and parse a recording. Re-uploading the same file returns the existing row.
+
+    Normal files keep the original in storage and rebuild the local bundle from it.
+    Long recordings (read in slices) keep the finished bundle instead of the
+    original, so a multi-hour flight does not fill the database."""
     filename = filename or path.name
     sha = sha256_file(path)
-    with _ingest_lock:
+    with _sha_lock(sha):
         with session() as s:
             existing = s.exec(select(Upload).where(Upload.sha256 == sha)).first()
             if existing and existing.status == "parsed":
                 return existing
         ext = _ext(filename)
         key = f"upload/{sha[:16]}{ext}"
-        if not storage.exists(key):
-            storage.put(key, path.read_bytes())       # the original is what survives restarts
         up = existing or Upload(sha256=sha, filename=filename, size=path.stat().st_size, path=key,
                                 source_path=source_path)
-        up.path = key
         try:
-            b = _build_bundle(key, sha)
+            if ext == ".synth.zip":
+                storage.put(key, path.read_bytes())
+                b = _build_bundle(key, sha)
+            else:
+                bdir = dirs()["bundles"] / sha[:16]
+                b = ide_to_bundle(path, bdir, file_hash=sha, progress=progress)
+                if b.reduced:
+                    key = f"upload/{sha[:16]}.bundle.zip"
+                    storage.put(key, zip_bundle(bdir))
+                elif not storage.exists(key):
+                    storage.put(key, path.read_bytes())   # the original is what survives restarts
             m = b.meta
+            up.path = key
             up.bundle_dir = sha[:16]
             up.status = "parsed"
             up.error = None
@@ -96,6 +111,24 @@ def ingest_file(path: Path, filename: str | None = None, source_path: str | None
     return up
 
 
+_sha_locks: dict[str, threading.Lock] = {}
+
+
+def _sha_lock(sha: str) -> threading.Lock:
+    """One parse per file at a time, without making other uploads wait for a long one."""
+    with _ingest_lock:
+        return _sha_locks.setdefault(sha, threading.Lock())
+
+
+def zip_bundle(bdir: Path) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:     # parquet and npz are already compressed
+        for f in sorted(bdir.iterdir()):
+            if f.is_file():
+                z.write(f, f.name)
+    return buf.getvalue()
+
+
 def _ext(filename: str) -> str:
     return ".synth.zip" if filename.lower().endswith(".zip") else Path(filename).suffix.lower() or ".ide"
 
@@ -103,7 +136,7 @@ def _ext(filename: str) -> str:
 def _build_bundle(key: str, sha: str) -> Bundle:
     """Parse the stored original into the local bundle cache."""
     bdir = dirs()["bundles"] / sha[:16]
-    if key.endswith(".synth.zip"):
+    if key.endswith(".synth.zip") or key.endswith(".bundle.zip"):
         unzip_bundle(storage.get(key), bdir)
         return open_bundle(bdir)
     local = storage.to_local(key, dirs()["uploads"] / Path(key).name) if not key.startswith("/") else Path(key)

@@ -96,3 +96,14 @@ scoring:
 processing:
   max_points_timeseries: 4000
   story_peak_g_min: 2.0
+
+# Long recordings (an airline flight, hours of high-rate data). Above
+# full_rows_max samples in total the file is read in slices: charts, replay and
+# motion use channels averaged down to at most max_rows_per_channel rows, while
+# peaks, spectra and vibration are measured on the full-rate data slice by slice.
+large_recordings:
+  full_rows_max: 8000000         # the 37 MB drone flight has 5.1 M and stays full rate
+  max_rows_per_channel: 1000000
+  envelope_factor: 4             # min/max envelope per 4 averaged rows keeps spikes visible in charts
+  slice_rows: 250000             # samples read per slice (about 200 MB of working memory)
+  chunk_mb: 8                    # browser upload piece size

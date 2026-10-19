@@ -44,18 +44,28 @@ def r_duration(b: Bundle, a: dict, **_):
 def r_motors(b: Bundle, a: dict, band=(50.0, 500.0), factor=4.0, **_):
     """Vibration spin-up and spin-down from band-limited RMS."""
     role = "hf_accel" if b.roles.get("hf_accel") else "accel"
-    df = b.role(role)
-    if df is None:
-        return []
-    t, A, fs = uniform(df, ["x", "y", "z"])
-    hi = min(band[1], fs * 0.45)
-    v = np.linalg.norm(butter(A, fs, low=band[0], high=hi), axis=1)
-    w = int(fs)
-    n = len(v) // w
-    if n < 5:
-        return []
-    rms = np.sqrt((v[: n * w] ** 2).reshape(n, w).mean(axis=1))
-    tt = t[: n * w : w] + 0.5
+    vib = b.vibration(role)
+    if vib:                                    # long recording: 10 Hz RMS measured at full rate
+        v10 = np.asarray(vib["rms_g"], dtype=np.float64)
+        n = len(v10) // 10
+        if n < 5:
+            return []
+        rms = np.sqrt((v10[: n * 10] ** 2).reshape(n, 10).mean(axis=1))
+        tt = np.asarray(vib["t"])[: n * 10: 10] + 0.45
+        hi = b.fullrate(b.roles.get(role))["vibration_band_hz"][1]
+    else:
+        df = b.role(role)
+        if df is None:
+            return []
+        t, A, fs = uniform(df, ["x", "y", "z"])
+        hi = min(band[1], fs * 0.45)
+        v = np.linalg.norm(butter(A, fs, low=band[0], high=hi), axis=1)
+        w = int(fs)
+        n = len(v) // w
+        if n < 5:
+            return []
+        rms = np.sqrt((v[: n * w] ** 2).reshape(n, w).mean(axis=1))
+        tt = t[: n * w : w] + 0.5
     base = np.percentile(rms, 5)
     on = rms > base * factor
     if not on.any():

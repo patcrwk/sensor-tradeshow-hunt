@@ -22,6 +22,13 @@ def accel_frame(b: Bundle, role: str) -> tuple[pd.DataFrame, dict] | None:
 
 def frequency(b: Bundle, role: str | None = None, fmin: float = 10.0, max_points: int = 800) -> dict:
     role = role or ("hf_accel" if b.roles.get("hf_accel") else "accel")
+    for r in (role, "accel"):
+        ch = b.roles.get(r)
+        if ch is not None:
+            fr = b.fullrate(ch)
+            if fr and fr.get("psd"):
+                return _from_fullrate(b, ch, fr, fmin, max_points)
+            break
     got = accel_frame(b, role) or accel_frame(b, "accel")
     if got is None:
         return {"available": False}
@@ -45,6 +52,30 @@ def frequency(b: Bundle, role: str | None = None, fmin: float = 10.0, max_points
         "peaks": peaks,
         "source": {"channel": info["name"], "method": f"Welch PSD (endaq.calc.psd.welch), {bw:g} Hz bins, "
                                                      "full recording; peaks above " + f"{fmin:g} Hz"},
+    }
+
+
+def _from_fullrate(b: Bundle, ch, fr: dict, fmin: float, max_points: int) -> dict:
+    """A long recording: the PSD was averaged slice by slice over the full-rate data."""
+    info = b.channel_info(ch)
+    p = fr["psd"]
+    psd = pd.DataFrame({k: p[k] for k in ("x", "y", "z", "resultant")}, index=pd.Index(p["f"], name="frequency (Hz)"))
+    psd = psd[psd.index > 0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        octv = epsd.to_octave(psd[["x", "y", "z"]], fstart=1.0, octave_bins=3)
+    bw = float(np.diff(psd.index[:2])[0]) if len(psd) > 1 else 1.0
+    return {
+        "available": True,
+        "channel": info["id"], "channel_name": info["name"], "rate_hz": fr["fs"],
+        "units": "g²/Hz",
+        "psd": _log_decimate(psd, max_points),
+        "octave": {"f": [round(float(f), 2) for f in octv.index],
+                   **{c: [float(v) for v in octv[c]] for c in octv.columns}},
+        "spectrogram": fr["spectrogram"],
+        "peaks": dominant_peaks(psd, fmin=fmin),
+        "source": {"channel": info["name"], "method": f"Welch PSD, {bw:g} Hz bins, full sample rate "
+                   f"({fr['fs']:.0f} Hz), averaged over the whole recording in sections; peaks above {fmin:g} Hz"},
     }
 
 
