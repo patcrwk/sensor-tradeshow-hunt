@@ -287,10 +287,16 @@ function Motion({ m, g, track }: { m: any; g: any; track?: any }) {
 function TrackMap({ t }: { t: any }) {
   const c = t.course;
   const stops = (t.stops || []).map((p: any) => ({ x: p.x, y: p.y, label: "stop" }));
+  // Only hunt runs have a booth; any other recording just marks where it starts and ends
+  const n = t.x.length - 1;
+  const ends = c ? undefined : [
+    { x: t.x[0], y: t.y[0], color: "var(--good)", label: "Start" },
+    ...(n > 0 ? [{ x: t.x[n], y: t.y[n], color: "var(--accent)", label: "End" }] : []),
+  ];
   return (
     <>
       <div className="label mb-2">Route {t.source === "run" ? "(hunt run, fitted to the course)" : "(reconstructed)"}</div>
-      <CourseMap courseId={c?.id} booth={c?.booth ?? { x: t.x[0], y: t.y[0] }} stations={c?.stations} background={c?.background}
+      <CourseMap courseId={c?.id} booth={c?.booth ?? null} markers={ends} stations={c?.stations} background={c?.background}
         reference={c?.route ? { x: c.route.x, y: c.route.y, source: c.route.source, color: "#9fb0c2", opacity: 0.3 } : null}
         routes={[{ x: t.x, y: t.y, source: t.route_source || "reconstructed" }]} highlight={t.visited} strays={c ? [] : stops} height={600} />
       <div className="text-sm text-muted mt-1">{t.distance_m} m walked. {t.note}</div>
