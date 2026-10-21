@@ -65,7 +65,16 @@ pages (`/p/...`) and station scan pages (`/s/...`). The start script warns in
   Heroku's 30 second limit, and a dropped piece is simply resent. Files above
   8 million samples in total are then read in the background a slice at a
   time (`engine/io/reduce.py`, settings under `large_recordings` in
-  `config.yaml`). Memory stays at a few hundred MB however long the flight.
+  `config.yaml`). Files over 64 MB are also opened without loading their
+  samples (`engine/io/ide_stream.py`): idelib's normal import holds about
+  twice the file in memory, which crashed a Basic dyno (R15) on a 297 MB
+  flight. Tested on Linux with a 282 MB, 68 minute recording: the engine
+  peaks at about 430 MB in total (idle: 170 MB) and the whole upload,
+  reading, analysis and replay take about 25 s plus the upload time. On a
+  Basic dyno (512 MB) that is briefly over the quota together with the web
+  server (R14, slower but not stopped); Standard-2X (1 GB) has room to spare.
+  Replays longer than 20 minutes use fewer frames per second (at most 24,000
+  frames); the player interpolates between them.
   - Charts, replay and motion use the high-rate channels averaged down to at
     most 1 million rows per channel. Peak g, shock events, SRS, spectra and
     engine/motor vibration are measured on every full-rate sample. Chart

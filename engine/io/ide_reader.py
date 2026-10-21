@@ -13,6 +13,7 @@ import pandas as pd
 
 from ..config import get_config
 from . import bundle as B
+from . import ide_stream as S
 from . import reduce as R
 from .channel_discovery import (ChannelInfo, SubInfo, assign_roles, column_name,
                                 measurement_type)
@@ -74,12 +75,7 @@ def discover(doc) -> list[ChannelInfo]:
             subs.append(SubInfo(i, name, units, mtypes[i], col))
         _dedupe_columns(subs)
         try:
-            ea = ch.getSession()
-            n = len(ea)
-            rate = 0.0
-            if n > 1:
-                t0, t1 = ea[0][0], ea[-1][0]
-                rate = (n - 1) / max((t1 - t0) / 1e6, 1e-9)
+            rate = S.rate_hz(ch.getSession())      # from block timing; no samples are read
         except Exception:
             rate = 0.0
         chans.append(ChannelInfo(int(cid), str(ch.name), float(rate), subs))
@@ -153,25 +149,37 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True)
 
-    doc = open_doc(src)
+    cfg = get_config()
+    lc = cfg.large_recordings
+    streamed = src.stat().st_size > lc.stream_file_mb * 2**20
+    if streamed:                     # big file: keep only block metadata in memory (ide_stream.py)
+        doc, _ = S.open_streaming(src, lc.max_rows_per_channel,
+                                  progress=(lambda f: progress(0.15 * f)) if progress else None)
+    else:
+        doc = open_doc(src)
     chans = discover(doc)
     roles = assign_roles(chans)
 
     counts = {c.id: _count(doc.channels[c.id]) for c in chans}
-    factors = R.plan(counts, get_config())
+    factors = R.plan(counts, cfg, force=streamed)
     raw: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for c in chans:
         if not factors or factors[c.id] == 1:
             raw[c.id] = _channel_arrays(doc.channels[c.id])
     firsts = [v[0][0] for v in raw.values() if len(v[0])]
     if factors:
-        firsts += [float(doc.channels[c.id].getSession().arraySlice(0, 1)[0][0])
+        firsts += [S.first_time(doc.channels[c.id].getSession())
                    for c in chans if factors[c.id] > 1 and counts[c.id]]
     t0_us = min(firsts) if firsts else 0.0
 
     ch_meta = []
     t_end = 0.0
     done, total = 0, max(sum(counts.values()), 1)
+    p0 = 0.15 if streamed else 0.0
+
+    def report(f):
+        if progress:
+            progress(p0 + (1 - p0) * f)
     stat_ids = {roles.get("accel"), roles.get("hf_accel")}
     for c in chans:
         d = c.to_dict()
@@ -188,8 +196,8 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
             stats = c.id in stat_ids and len(c.subs) >= 3 and [s.column for s in c.subs[:3]] == ["x", "y", "z"]
             base = done
             df, n_src = R.stream_channel(
-                doc.channels[c.id].getSession(), colnames, k, t0_us, tmp, c.id, c.rate_hz, get_config(), stats,
-                progress=(lambda f, base=base, n=counts[c.id]: progress((base + f * n) / total)) if progress else None)
+                S.BlockReader(doc.channels[c.id].getSession()), colnames, k, t0_us, tmp, c.id, c.rate_hz, cfg, stats,
+                progress=lambda f, base=base, n=counts[c.id]: report((base + f * n) / total))
             df.to_parquet(tmp / f"ch_{c.id}.parquet", index=False)
             n = len(df)
             if n:
@@ -197,8 +205,7 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
             d.update(rate_hz=round(c.rate_hz / k, 3), source_rate_hz=round(c.rate_hz, 3), source_n=n_src,
                      decimation=k, full_rate_stats=bool(stats))
         done += counts[c.id]
-        if progress:
-            progress(done / total)
+        report(done / total)
         d["n"] = n
         d["file"] = f"ch_{c.id}.parquet"
         ch_meta.append(d)

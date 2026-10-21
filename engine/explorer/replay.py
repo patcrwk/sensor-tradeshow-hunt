@@ -128,8 +128,12 @@ def activity(b: Bundle, t: np.ndarray, band=(50.0, 500.0)) -> np.ndarray | None:
     return np.clip(np.interp(t, tr, rms) / ref, 0, 1.2)
 
 
+MAX_FRAMES = 24000     # 20 minutes at 20 fps; longer recordings get fewer frames per second
+
+
 def build_replay(b: Bundle, analysis: dict | None = None, model: str = "sensor", fps: float = 20.0) -> dict:
     cfg = get_config()
+    fps = min(fps, max(2.0, MAX_FRAMES / max(b.duration_s, 1.0)))   # the player interpolates between frames
     att = attitude(b, fps, cfg)
     dur = b.duration_s
     t = att["t"] if att else np.arange(0, dur, 1 / fps)

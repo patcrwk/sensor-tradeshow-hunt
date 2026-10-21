@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import shutil
+import sys
 import threading
 import traceback
 import zipfile
@@ -109,6 +110,18 @@ def ingest_file(path: Path, filename: str | None = None, source_path: str | None
                 s.add(sen)
                 s.commit()
     return up
+
+
+def release_memory() -> None:
+    """Hand freed memory back to the system after a big job (glibc keeps it otherwise)."""
+    import gc
+    gc.collect()
+    if sys.platform.startswith("linux"):
+        try:
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
 
 
 _sha_locks: dict[str, threading.Lock] = {}
@@ -706,6 +719,7 @@ def _analyze_safe(rec_id: int) -> None:
             r.status, r.error = "error", f"{type(ex).__name__}: {ex}"
             s.add(r)
             s.commit()
+    release_memory()
     bus.publish("recording", {"recording_id": rec_id})
 
 

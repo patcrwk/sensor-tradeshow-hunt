@@ -30,10 +30,10 @@ SPEC_COLS = 160
 SPEC_ROWS = 128
 
 
-def plan(counts: dict[int, int], cfg) -> dict[int, int] | None:
+def plan(counts: dict[int, int], cfg, force: bool = False) -> dict[int, int] | None:
     """Decimation factor per channel, or None when the file is small enough to read whole."""
     lc = cfg.large_recordings
-    if sum(counts.values()) <= lc.full_rows_max:
+    if not force and sum(counts.values()) <= lc.full_rows_max:
         return None
     return {cid: max(1, math.ceil(n / lc.max_rows_per_channel)) for cid, n in counts.items()}
 

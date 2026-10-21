@@ -53,7 +53,7 @@ def client(tmp_path, monkeypatch):
     db.reset_engine()
     lc = _load()["large_recordings"]
     saved = dict(lc)
-    lc.update(full_rows_max=100, max_rows_per_channel=200_000, chunk_mb=4)   # force the long-file path
+    lc.update(full_rows_max=100, max_rows_per_channel=200_000, chunk_mb=4, stream_file_mb=1)   # force the long-file path
     from fastapi.testclient import TestClient
     from engine.api.app import app
     with TestClient(app) as c:
@@ -102,3 +102,23 @@ def test_pieced_upload_of_long_recording(client):
     assert len(client.get(f"/api/recordings/{rec['id']}/timeseries?ch=8").json()["t"]) > 100
     assert not list(S.dirs()["uploads"].glob(".chunked-*"))
     assert storage.exists(f"upload/{a['overview']['file']['sha256'][:16]}.bundle.zip")
+
+
+def test_streaming_reader_matches_idelib():
+    """The low-memory reader returns exactly what idelib's full import does."""
+    if not DRONE.exists():
+        pytest.skip("fixtures/Drone_Flight.IDE not present")
+    import idelib
+    from engine.io.ide_stream import BlockReader, open_streaming, rate_hz
+    full = idelib.importFile(str(DRONE), quiet=True)
+    ref = {cid: full.channels[cid].getSession().arraySlice() for cid in full.channels}
+    doc, counts = open_streaming(DRONE, keep_rows=100_000)
+    for cid, want in ref.items():
+        ea = doc.channels[cid].getSession()
+        if counts[cid] <= 100_000:
+            got = ea.arraySlice()
+        else:
+            r = BlockReader(ea)
+            got = np.concatenate([r.arraySlice(i, min(i + 250_000, len(r))) for i in range(0, len(r), 250_000)], axis=1)
+            assert rate_hz(ea) == pytest.approx(rate_hz(full.channels[cid].getSession()))
+        assert np.array_equal(got, want), cid

@@ -103,7 +103,8 @@ processing:
 # peaks, spectra and vibration are measured on the full-rate data slice by slice.
 large_recordings:
   full_rows_max: 8000000         # the 37 MB drone flight has 5.1 M and stays full rate
-  max_rows_per_channel: 1000000
+  max_rows_per_channel: 500000   # a 1 hour flight: 140 rows per second, plenty for charts and replay
+  stream_file_mb: 64             # bigger files are parsed without holding their samples in memory
   envelope_factor: 4             # min/max envelope per 4 averaged rows keeps spikes visible in charts
   slice_rows: 250000             # samples read per slice (about 200 MB of working memory)
   chunk_mb: 8                    # browser upload piece size

@@ -131,6 +131,7 @@ def _process(job_id: str) -> None:
         j.update(status="error", error=f"{type(ex).__name__}: {ex}" if not isinstance(ex, ValueError) else str(ex))
     finally:
         _path(job_id).unlink(missing_ok=True)
+        S.release_memory()
         j["_touched"] = time.time()
         bus.publish("upload_job", _public(j))
         bus.publish("recording", {"recording_id": j.get("recording_id")})
