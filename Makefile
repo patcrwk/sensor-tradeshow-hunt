@@ -70,9 +70,9 @@ tune: ## make tune FILE=path/to/file.IDE [ARGS=--survey]
 
 kiosk: ## open the display in a full-screen browser (macOS, Chrome)
 ifeq ($(IS_WINDOWS),true)
-	start chrome --kiosk --app=http://localhost:3000/display
+	start chrome --kiosk --autoplay-policy=no-user-gesture-required --app=http://localhost:3000/display
 else
-	open -a "Google Chrome" --args --kiosk --app=http://localhost:3000/display
+	open -a "Google Chrome" --args --kiosk --autoplay-policy=no-user-gesture-required --app=http://localhost:3000/display
 endif
 
 clean:

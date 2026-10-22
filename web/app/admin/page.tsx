@@ -6,6 +6,7 @@ import { ErrorBox, Page } from "@/components/Nav";
 import { api, apiBase, upload, useApi } from "@/lib/api";
 import QrCode, { originUrl } from "@/components/QrCode";
 import { DownloadQrButton, planSigns } from "@/components/SignSheet";
+import { parseYouTube } from "@/lib/youtube";
 
 const PANEL_OPTIONS = [
   ["join", "How to play (invites passers-by to join)"],
@@ -15,7 +16,53 @@ const PANEL_OPTIONS = [
   ["leaderboard:speed", "Leaderboard: top speed"], ["crowd", "Crowd stats and finishing times"],
   ["heatmap", "Heat map of all tracks"], ["environment", "Show-floor environment map"],
   ["course", "Course map"], ["story:library", "Recording stories (Demo Library)"],
+  ["video", "YouTube video (add links below)"],
 ];
+
+function VideoList({ k, set }: { k: any; set: (k: any) => void }) {
+  const [url, setUrl] = useState("");
+  const videos: { url: string }[] = k.videos || [];
+  const parsed = url.trim() ? parseYouTube(url) : null;
+  const add = () => {
+    if (!parsed) return;
+    set({ ...k, videos: [...videos, { url: url.trim() }],
+          panels: k.panels.includes("video") ? k.panels : [...k.panels, "video"] });
+    setUrl("");
+  };
+  return (
+    <div className="space-y-2">
+      <div className="label">YouTube videos</div>
+      {videos.map((v, n) => {
+        const yt = parseYouTube(v.url);
+        return (
+          <div key={n} className="flex items-center gap-3">
+            {yt
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={`https://i.ytimg.com/vi/${yt.id}/default.jpg`} alt="" className="w-16 h-12 object-cover rounded" />
+              : <div className="w-16 h-12 rounded bg-panel-2" />}
+            <div className="flex-1 min-w-0 text-sm truncate">{v.url}</div>
+            <button className="btn" onClick={() => set({ ...k, videos: videos.filter((_, j) => j !== n) })}>Remove</button>
+          </div>
+        );
+      })}
+      <div className="flex gap-2">
+        <input className="input" placeholder="Paste a YouTube link" value={url} onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+        <button className="btn" disabled={!parsed} onClick={add}>Add</button>
+      </div>
+      {url.trim() && !parsed && <div className="text-sm text-warn">That does not look like a YouTube video link.</div>}
+      <label className="flex gap-2 items-center">
+        <input type="checkbox" checked={k.video_full !== false} onChange={(e) => set({ ...k, video_full: e.target.checked })} />
+        Play each video to the end (otherwise it shows for the seconds per panel)
+      </label>
+      <label className="flex gap-2 items-center">
+        <input type="checkbox" checked={!!k.video_sound} onChange={(e) => set({ ...k, video_sound: e.target.checked })} />
+        Sound on (needs the display opened with <code>make kiosk</code>; otherwise the browser keeps it muted)
+      </label>
+      <div className="text-sm text-muted">Each time the rotation reaches the video panel it plays the next video. The display needs internet access for YouTube.</div>
+    </div>
+  );
+}
 
 export default function Admin() {
   const { settings, reload } = useSettings();
@@ -77,6 +124,7 @@ export default function Admin() {
             ))}
           </div>
           <Field label="Seconds per panel" value={String(k.seconds_per_panel)} onChange={(v) => setS({ ...s, kiosk: { ...k, seconds_per_panel: Math.max(5, +v || 15) } })} />
+          <VideoList k={k} set={(kk: any) => setS({ ...s, kiosk: kk })} />
           {library.data && library.data.length > 0 && (
             <div>
               <div className="label mb-1">Stories to show (none checked = all library recordings)</div>

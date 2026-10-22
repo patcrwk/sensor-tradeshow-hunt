@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CourseMap from "@/components/CourseMap";
 import Leaderboard from "@/components/Leaderboard";
 import Wordmark from "@/components/Wordmark";
@@ -7,6 +7,7 @@ import { useSettings } from "@/components/BrandProvider";
 import { turbo } from "@/components/Heatmap";
 import { api, apiBase, useApi, useEvents } from "@/lib/api";
 import { fmtM, fmtNum, fmtTime } from "@/lib/format";
+import { loadYouTubeApi, parseYouTube } from "@/lib/youtube";
 
 export default function Display() {
   const { settings } = useSettings();
@@ -18,6 +19,8 @@ export default function Display() {
   const [i, setI] = useState(0);
   const [flash, setFlash] = useState<any | null>(null);
   const [storyIdx, setStoryIdx] = useState(0);
+  const [videoIdx, setVideoIdx] = useState(0);
+  const [step, setStep] = useState(0);        // counts every advance, even with a single panel
 
   // Static map: set in Admin; press M on the display to switch locally
   const [mapOverride, setMapOverride] = useState<boolean | null>(null);
@@ -29,21 +32,34 @@ export default function Display() {
     return () => window.removeEventListener("keydown", onKey);
   }, [sm?.enabled]);
   useEffect(() => setMapOverride(null), [sm?.enabled, sm?.version]);
+  const videos = useMemo(() => (kiosk?.videos || []).map((v: any) => parseYouTube(v.url || "")).filter(Boolean) as { id: string; start: number }[],
+    [kiosk?.videos]);
   const panels = useMemo(() => {
     const p = kiosk?.panels?.length ? kiosk.panels : ["leaderboard:fastest", "crowd"];
     return p.filter((x) => !(x === "story:library" && !library.data?.some((r) => r.status === "ready")))
       // heat map and environment map are drawn from reconstructed positions: hidden with a static map
-      .filter((x) => !(staticOn && (x === "heatmap" || x === "environment")));
-  }, [kiosk, library.data, staticOn]);
+      .filter((x) => !(staticOn && (x === "heatmap" || x === "environment")))
+      .filter((x) => !(x === "video" && !videos.length));
+  }, [kiosk, library.data, staticOn, videos.length]);
   const secs = kiosk?.seconds_per_panel || 15;
+  const cur = panels[i % Math.max(panels.length, 1)] || "leaderboard:fastest";
+  const video = videos.length ? videos[videoIdx % videos.length] : null;
+  const playWhole = cur === "video" && kiosk?.video_full !== false;
 
+  // Each panel shows for `secs`; a video set to play in full moves on when it ends
+  // (with a 20 minute safety limit in case the end is never reported)
+  const curRef = useRef(cur);
+  curRef.current = cur;
+  const next = useCallback(() => {
+    if (curRef.current === "video") setVideoIdx((k) => k + 1);
+    setI((v) => (v + 1) % Math.max(panels.length, 1));
+    setStoryIdx((v) => v + 1);
+    setStep((v) => v + 1);
+  }, [panels.length]);
   useEffect(() => {
-    const t = setInterval(() => {
-      setI((v) => (v + 1) % Math.max(panels.length, 1));
-      setStoryIdx((v) => v + 1);
-    }, secs * 1000);
-    return () => clearInterval(t);
-  }, [panels.length, secs]);
+    const t = setTimeout(next, playWhole ? 20 * 60 * 1000 : secs * 1000);
+    return () => clearTimeout(t);
+  }, [step, next, playWhole, secs]);
 
   // A new finisher interrupts the rotation
   useEvents(async (m) => {
@@ -58,7 +74,6 @@ export default function Display() {
     }
   });
 
-  const cur = panels[i % Math.max(panels.length, 1)] || "leaderboard:fastest";
   const b = settings?.branding;
   const stories = (library.data || []).filter((r) => r.status === "ready" && (!kiosk?.story_recording_ids?.length || kiosk.story_recording_ids.includes(r.id)));
   const story = stories.length ? stories[storyIdx % stories.length] : null;
@@ -81,12 +96,49 @@ export default function Display() {
           cur === "course" ? <CoursePanel course={course.data} staticMap={staticOn ? sm!.version : null} /> :
           cur === "join" ? <JoinPanel course={course.data} leader={lbs.data?.fastest?.rows?.[0]} eventName={b?.event_name} /> :
           cur === "story:library" && story ? <StoryPanel rec={story} /> :
+          cur === "video" && video ? <VideoPanel key={step} video={video} sound={!!kiosk?.video_sound} onDone={next} /> :
           <Leaderboard id="fastest" lb={lbs.data?.fastest} big limit={8} />}
       </main>
       <footer className="px-12 py-4 flex items-center justify-between border-t border-line">
         <div className="text-2xl text-muted">{b?.tagline}</div>
         <div className="flex gap-2">{panels.map((_, k) => <span key={k} className={`w-3 h-3 rounded-full ${k === i % panels.length ? "bg-brand" : "bg-line"}`} />)}</div>
       </footer>
+    </div>
+  );
+}
+
+/** A YouTube video, full size. Muted unless sound is on: browsers block autoplay with
+    sound unless the display was opened with autoplay allowed (make kiosk does this). */
+function VideoPanel({ video, sound, onDone }: { video: { id: string; start: number }; sound: boolean; onDone: () => void }) {
+  const host = useRef<HTMLDivElement>(null);
+  const done = useRef(onDone);
+  done.current = onDone;
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let player: any = null;
+    let gone = false;
+    const el = document.createElement("div");
+    host.current?.appendChild(el);
+    loadYouTubeApi().then((YT) => {
+      if (gone) return;
+      player = new YT.Player(el, {
+        videoId: video.id, width: "100%", height: "100%", host: "https://www.youtube-nocookie.com",
+        playerVars: { autoplay: 1, mute: sound ? 0 : 1, controls: 0, rel: 0, playsinline: 1, modestbranding: 1,
+                      start: video.start || undefined, iv_load_policy: 3, disablekb: 1 },
+        events: {
+          onReady: (e: any) => { if (sound) e.target.unMute(); e.target.playVideo(); },
+          onStateChange: (e: any) => { if (e.data === YT.PlayerState.ENDED) done.current(); },
+          // unavailable, private or not embeddable: skip it
+          onError: () => { setErr("This video cannot be played here."); setTimeout(() => done.current(), 3000); },
+        },
+      });
+    }).catch(() => { setErr("YouTube could not be reached."); setTimeout(() => done.current(), 3000); });
+    return () => { gone = true; try { player?.destroy(); } catch {} el.remove(); };
+  }, [video.id, video.start, sound]);
+  return (
+    <div className="h-full w-full rounded-xl overflow-hidden bg-black relative">
+      <div ref={host} className="absolute inset-0 [&>iframe]:w-full [&>iframe]:h-full" />
+      {err && <div className="absolute inset-0 grid place-items-center text-3xl text-muted">{err}</div>}
     </div>
   );
 }

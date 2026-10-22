@@ -7,6 +7,12 @@
 2. Open http://localhost:3000/display on the big monitor (`make kiosk` on macOS).
    It needs no mouse and updates by itself.
 3. Admin: set the event name, logo and colors; choose the kiosk panels.
+   To show YouTube videos, paste each link under Kiosk rotation > YouTube
+   videos, click Add, then Save rotation. Each time the rotation reaches the
+   video panel it plays the next video, to the end by default. Videos are
+   muted unless "Sound on" is ticked and the display was opened with
+   `make kiosk` (browsers block autoplay with sound otherwise). The display
+   needs internet access for YouTube; a video that cannot play is skipped.
 4. Admin > Watch folder: set the sensor's mount path, for example
    `/Volumes/*/DATA`. Plugged-in sensors are then read automatically.
 5. Sensors: configure them with enDAQ's software (see
