@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CourseMap from "@/components/CourseMap";
+import ExplorerMarquee from "@/components/ExplorerMarquee";
 import Leaderboard from "@/components/Leaderboard";
 import Wordmark from "@/components/Wordmark";
 import { useSettings } from "@/components/BrandProvider";
@@ -16,6 +17,7 @@ export default function Display() {
   const dash = useApi<any>("/api/dashboard", ["leaderboard", "reset"], 60000);
   const course = useApi<any>("/api/courses/active", ["course", "reset"]);
   const library = useApi<any[]>("/api/recordings?library=true", ["recording"]);
+  const allRecs = useApi<any[]>("/api/recordings", ["recording"]);
   const [i, setI] = useState(0);
   const [flash, setFlash] = useState<any | null>(null);
   const [storyIdx, setStoryIdx] = useState(0);
@@ -34,17 +36,24 @@ export default function Display() {
   useEffect(() => setMapOverride(null), [sm?.enabled, sm?.version]);
   const videos = useMemo(() => (kiosk?.videos || []).map((v: any) => parseYouTube(v.url || "")).filter(Boolean) as { id: string; start: number }[],
     [kiosk?.videos]);
+  // Recording Explorer panel: the recording picked in Admin, else the first ready library one
+  const explorerRec = useMemo(() => {
+    const ready = (allRecs.data || []).filter((r) => r.status === "ready" && !r.archived);
+    return ready.find((r) => r.id === kiosk?.explorer_recording_id) || ready.find((r) => r.in_library) || null;
+  }, [allRecs.data, kiosk?.explorer_recording_id]);
   const panels = useMemo(() => {
     const p = kiosk?.panels?.length ? kiosk.panels : ["leaderboard:fastest", "crowd"];
     return p.filter((x) => !(x === "story:library" && !library.data?.some((r) => r.status === "ready")))
       // heat map and environment map are drawn from reconstructed positions: hidden with a static map
       .filter((x) => !(staticOn && (x === "heatmap" || x === "environment")))
-      .filter((x) => !(x === "video" && !videos.length));
-  }, [kiosk, library.data, staticOn, videos.length]);
+      .filter((x) => !(x === "video" && !videos.length))
+      .filter((x) => !(x === "explorer" && !explorerRec));
+  }, [kiosk, library.data, staticOn, videos.length, explorerRec]);
   const secs = kiosk?.seconds_per_panel || 15;
   const cur = panels[i % Math.max(panels.length, 1)] || "leaderboard:fastest";
   const video = videos.length ? videos[videoIdx % videos.length] : null;
-  const playWhole = cur === "video" && kiosk?.video_full !== false;
+  // videos (when set to play in full) and the Recording Explorer walkthrough end by themselves
+  const playWhole = (cur === "video" && kiosk?.video_full !== false) || cur === "explorer";
 
   // Each panel shows for `secs`; a video set to play in full moves on when it ends
   // (with a 20 minute safety limit in case the end is never reported)
@@ -75,7 +84,7 @@ export default function Display() {
   });
 
   const b = settings?.branding;
-  const stories = (library.data || []).filter((r) => r.status === "ready" && (!kiosk?.story_recording_ids?.length || kiosk.story_recording_ids.includes(r.id)));
+  const stories = (library.data || []).filter((r) => r.status === "ready" && !r.archived && (!kiosk?.story_recording_ids?.length || kiosk.story_recording_ids.includes(r.id)));
   const story = stories.length ? stories[storyIdx % stories.length] : null;
 
   return (
@@ -96,6 +105,7 @@ export default function Display() {
           cur === "course" ? <CoursePanel course={course.data} staticMap={staticOn ? sm!.version : null} /> :
           cur === "join" ? <JoinPanel course={course.data} leader={lbs.data?.fastest?.rows?.[0]} eventName={b?.event_name} /> :
           cur === "story:library" && story ? <StoryPanel rec={story} /> :
+          cur === "explorer" && explorerRec ? <ExplorerMarquee key={step} rec={explorerRec} secs={secs} onDone={next} /> :
           cur === "video" && video ? <VideoPanel key={step} video={video} sound={!!kiosk?.video_sound} onDone={next} /> :
           <Leaderboard id="fastest" lb={lbs.data?.fastest} big limit={8} />}
       </main>

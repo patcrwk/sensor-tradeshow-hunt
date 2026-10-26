@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ErrorBox, Page, StatusPill } from "@/components/Nav";
-import { uploadRecording, UploadProgress, useApi } from "@/lib/api";
+import { api, uploadRecording, UploadProgress, useApi } from "@/lib/api";
 import { useAuth } from "@/components/BrandProvider";
 import { fmtTime } from "@/lib/format";
 
@@ -20,8 +20,14 @@ export default function Explorer() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [prog, setProg] = useState<UploadProgress | null>(null);
-  const library = recs.data?.filter((r) => r.in_library) || [];
-  const others = recs.data?.filter((r) => !r.in_library) || [];
+  const live = recs.data?.filter((r) => !r.archived) || [];
+  const library = live.filter((r) => r.in_library);
+  const others = live.filter((r) => !r.in_library);
+  const old = recs.data?.filter((r) => r.archived) || [];
+  const setArchived = async (r: any, archived: boolean) => {
+    await api(`/api/recordings/${r.id}`, { method: "PATCH", json: { archived } });
+    recs.reload();
+  };
 
   const go = async () => {
     if (!file) return;
@@ -69,12 +75,24 @@ export default function Explorer() {
         <div className="card p-6">
           <h2 className="text-xl font-bold mb-3">Recent uploads</h2>
           {others.map((r) => (
-            <div key={r.id} className="flex justify-between py-2 border-b border-line">
-              <Link href={`/explorer/${r.id}`} className="font-semibold hover:text-brand">{r.title}</Link>
+            <div key={r.id} className="flex justify-between items-center gap-2 py-2 border-b border-line">
+              <Link href={`/explorer/${r.id}`} className="font-semibold hover:text-brand flex-1">{r.title}</Link>
               <StatusPill status={r.status} />
+              <button className="btn text-xs py-1" title="Move to Old recordings (can be restored)" onClick={() => setArchived(r, true)}>Archive</button>
             </div>
           ))}
           {!others.length && <div className="text-muted">None yet.</div>}
+          {old.length > 0 && (
+            <details className="mt-5">
+              <summary className="cursor-pointer label">Old recordings ({old.length})</summary>
+              {old.map((r) => (
+                <div key={r.id} className="flex justify-between items-center gap-2 py-2 border-b border-line text-muted">
+                  <Link href={`/explorer/${r.id}`} className="hover:text-brand flex-1">{r.title}</Link>
+                  <button className="btn text-xs py-1" onClick={() => setArchived(r, false)}>Restore</button>
+                </div>
+              ))}
+            </details>
+          )}
         </div>
       </div>}
     </Page>

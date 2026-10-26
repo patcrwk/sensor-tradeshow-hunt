@@ -13,6 +13,10 @@
    muted unless "Sound on" is ticked and the display was opened with
    `make kiosk` (browsers block autoplay with sound otherwise). The display
    needs internet access for YouTube; a video that cannot play is skipped.
+   The **Recording Explorer walkthrough** panel plays one recording's 3D
+   replay (the whole recording in about 45 s), then its story, shock,
+   spectrum, environment and route screens. Pick the recording under Kiosk
+   rotation (default: the first Demo Library recording).
 4. Admin > Watch folder: set the sensor's mount path, for example
    `/Volumes/*/DATA`. Plugged-in sensors are then read automatically.
 5. Sensors: configure them with enDAQ's software (see
@@ -39,7 +43,10 @@
    mark bonus stations, set the order rule. Read any spacing warnings.
 9. Publish. Export the package and keep it with the booth kit: the same venue
    next year can import it.
-10. To tidy up, **Delete** old or test courses (Course Setup list, or on the
+10. To tidy up, **Archive** old or test courses: they move to "Old courses"
+    at the bottom of the list and can be restored. Recordings work the same
+    way (Archive in Recent uploads or on the recording page; "Old
+    recordings" holds them). Rename a recording on its page. Or **Delete** (Course Setup list, or on the
     course page). The active course cannot be deleted: make another one active
     first. Runs scored against a deleted course keep their times and results.
     Printed QR signs are not affected.

@@ -86,6 +86,7 @@ class Course(SQLModel, table=True):
     error: Optional[str] = None
     created_at: float = Field(default_factory=now)
     published_at: Optional[float] = None
+    archived: bool = False         # in the "Old courses" folder (hidden, restorable)
 
 
 class SurveyFile(SQLModel, table=True):
@@ -152,6 +153,7 @@ class Recording(SQLModel, table=True):
     annotations: Any = Field(default=None, sa_column=Column(JSON))
     in_library: bool = False
     run_id: Optional[int] = Field(default=None, index=True)   # set when it came back from the hunt
+    archived: bool = False         # in the "Old recordings" folder (hidden, restorable)
     status: str = "processing"     # processing | ready | error
     analysis_path: Optional[str] = None
     error: Optional[str] = None

@@ -508,7 +508,7 @@ def dashboard():
 def _course_dict(c: Course, full: bool = True) -> dict:
     d = {"id": c.id, "name": c.name, "version": c.version, "status": c.status, "lineage": c.lineage,
          "error": c.error, "created_at": c.created_at, "published_at": c.published_at,
-         "active": get_setting("active_course_id") == c.id}
+         "active": get_setting("active_course_id") == c.id, "archived": bool(c.archived)}
     if full:
         d["data"] = c.data
         with session() as s:
@@ -527,6 +527,28 @@ def courses():
     with session() as s:
         rows = s.exec(select(Course).order_by(Course.id.desc())).all()
     return [_course_dict(c, full=False) for c in rows]
+
+
+class ArchiveBody(BaseModel):
+    archived: bool = True
+
+
+@app.post("/api/courses/{course_id}/archive")
+def archive_course(course_id: int, body: ArchiveBody):
+    """Move a course to the "Old courses" folder (or back). Nothing is deleted."""
+    if body.archived and get_setting("active_course_id") == course_id:
+        raise HTTPException(409, "This is the active course. Make another course active first.")
+    with session() as s:
+        c = s.get(Course, course_id)
+        if not c:
+            _404()
+        c.archived = body.archived
+        s.add(c)
+        s.commit()
+        s.refresh(c)
+    audit("course", f"{'archived' if body.archived else 'restored'} course {c.name} v{c.version}")
+    bus.publish("course", {"course_id": course_id})
+    return _course_dict(c, full=False)
 
 
 @app.get("/api/courses/active")
@@ -972,7 +994,10 @@ async def recording_replay(rec_id: int):
 
 @app.patch("/api/recordings/{rec_id}")
 def patch_recording(rec_id: int, patch: dict):
-    return _rec_dict(S.update_recording(rec_id, patch))
+    try:
+        return _rec_dict(S.update_recording(rec_id, patch))
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
 
 
 @app.post("/api/recordings/{rec_id}/reanalyze")

@@ -16,8 +16,27 @@ const PANEL_OPTIONS = [
   ["leaderboard:speed", "Leaderboard: top speed"], ["crowd", "Crowd stats and finishing times"],
   ["heatmap", "Heat map of all tracks"], ["environment", "Show-floor environment map"],
   ["course", "Course map"], ["story:library", "Recording stories (Demo Library)"],
+  ["explorer", "Recording Explorer walkthrough: replay and analysis screens (pick the recording below)"],
   ["video", "YouTube video (add links below)"],
 ];
+
+function ExplorerPick({ k, set }: { k: any; set: (k: any) => void }) {
+  const recs = useApi<any[]>("/api/recordings", ["recording"]);
+  const ready = (recs.data || []).filter((r) => r.status === "ready" && !r.archived);
+  return (
+    <div>
+      <div className="label mb-1">Recording Explorer walkthrough: recording</div>
+      <select className="input" value={k.explorer_recording_id ?? ""}
+        onChange={(e) => set({ ...k, explorer_recording_id: e.target.value ? +e.target.value : null,
+                               panels: k.panels.includes("explorer") ? k.panels : [...k.panels, "explorer"] })}>
+        <option value="">First Demo Library recording</option>
+        {ready.map((r) => <option key={r.id} value={r.id}>{r.title}{r.in_library ? " (library)" : ""}</option>)}
+      </select>
+      <div className="text-sm text-muted mt-1">Plays the 3D replay (the whole recording in about 45 s), then the story, shock, spectrum,
+        environment and route screens for the seconds per panel each, then carries on with the rotation.</div>
+    </div>
+  );
+}
 
 function VideoList({ k, set }: { k: any; set: (k: any) => void }) {
   const [url, setUrl] = useState("");
@@ -124,6 +143,7 @@ export default function Admin() {
             ))}
           </div>
           <Field label="Seconds per panel" value={String(k.seconds_per_panel)} onChange={(v) => setS({ ...s, kiosk: { ...k, seconds_per_panel: Math.max(5, +v || 15) } })} />
+          <ExplorerPick k={k} set={(kk: any) => setS({ ...s, kiosk: kk })} />
           <VideoList k={k} set={(kk: any) => setS({ ...s, kiosk: kk })} />
           {library.data && library.data.length > 0 && (
             <div>

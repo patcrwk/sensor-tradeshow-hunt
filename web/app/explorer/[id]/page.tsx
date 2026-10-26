@@ -51,8 +51,21 @@ function ProfilePicker({ rec, onChange }: { rec: any; onChange: () => void }) {
   const profiles = useApi<any[]>("/api/profiles");
   const { isStaff } = useAuth();
   if (!isStaff) return null;
+  const rename = async () => {
+    const t = prompt("Recording name", rec.title);
+    if (t == null || !t.trim() || t.trim() === rec.title) return;
+    await api(`/api/recordings/${rec.id}`, { method: "PATCH", json: { title: t.trim() } });
+    onChange();
+  };
+  const archive = async () => {
+    if (!rec.archived && !confirm(`Move "${rec.title}" to Old recordings? It is hidden from the Explorer list and the display, and can be restored.`)) return;
+    await api(`/api/recordings/${rec.id}`, { method: "PATCH", json: { archived: !rec.archived } });
+    onChange();
+  };
   return (
     <div className="flex gap-2 items-center">
+      <button className="btn text-sm" onClick={rename}>Rename</button>
+      <button className="btn text-sm" onClick={archive}>{rec.archived ? "Restore from Old" : "Archive"}</button>
       <select className="input w-44" value={rec.profile} onChange={async (e) => { await api(`/api/recordings/${rec.id}`, { method: "PATCH", json: { profile: e.target.value } }); onChange(); }}>
         {profiles.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>

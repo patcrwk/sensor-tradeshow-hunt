@@ -163,11 +163,16 @@ function buildModel(model: string, q: number[], pos: V3, cam: Cam, act: number, 
   }
 }
 
-export default function ReplayScene({ data, title }: { data: Replay; title: string }) {
+/** kiosk: plays by itself from the start at `kiosk.speed`, with no controls, and
+    calls kiosk.onEnd when it reaches the end (the display's Recording Explorer panel). */
+export default function ReplayScene({ data, title, kiosk }: { data: Replay; title: string;
+  kiosk?: { speed: number; onEnd?: () => void } }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [t, setT] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(5);
+  const [playing, setPlaying] = useState(!!kiosk);
+  const [speed, setSpeed] = useState(kiosk?.speed ?? 5);
+  const onEnd = useRef(kiosk?.onEnd);
+  onEnd.current = kiosk?.onEnd;
   const [view, setView] = useState({ az: -2.2, el: 0.32, dist: 5.5, follow: false });
   const [recording, setRecording] = useState(false);
   const recRef = useRef<MediaRecorder | null>(null);
@@ -311,6 +316,7 @@ export default function ReplayScene({ data, title }: { data: Replay; title: stri
       if (nt >= dur) {
         setT(dur); setPlaying(false);
         if (recRef.current?.state === "recording") recRef.current.stop();
+        onEnd.current?.();
         return;
       }
       setT(nt);
@@ -360,6 +366,7 @@ export default function ReplayScene({ data, title }: { data: Replay; title: stri
           const y = ((e.clientY - r.top) / r.height) * H;
           if (y > H - STRIP) { setT(Math.max(0, Math.min(dur, (((e.clientX - r.left) / r.width) * W - 20) / (W - 40) * dur))); }
         }} />
+      {!kiosk && <>
       <div className="flex items-center gap-3 mt-3 flex-wrap">
         <button className="btn btn-primary" disabled={recording} onClick={() => { if (t >= dur) setT(0); setPlaying(!playing); }}>{playing ? "Pause" : t >= dur ? "Replay" : "Play"}</button>
         <input type="range" min={0} max={dur} step={0.1} value={t} className="flex-1 min-w-[200px]" disabled={recording}
@@ -375,6 +382,7 @@ export default function ReplayScene({ data, title }: { data: Replay; title: stri
       </div>
       <div className="text-xs text-muted mt-2">Drag to orbit, scroll to zoom, click the height strip to jump. Recording plays from the current point to the end at the chosen speed and saves a video file.</div>
       <ul className="text-sm text-muted mt-3 list-disc ml-5 space-y-1">{data.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+      </>}
     </div>
   );
 }

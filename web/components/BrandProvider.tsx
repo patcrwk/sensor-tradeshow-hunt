@@ -6,7 +6,7 @@ type Settings = {
   branding: { event_name: string; company: string; company_full?: string; primary: string; accent: string; logo_url: string | null; tagline: string;
     booth_label?: string; website?: string; sign_footer?: string; home_term?: string; station_term?: string };
   kiosk: { panels: string[]; seconds_per_panel: number; story_recording_ids: number[];
-    videos?: { url: string }[]; video_full?: boolean; video_sound?: boolean };
+    videos?: { url: string }[]; video_full?: boolean; video_sound?: boolean; explorer_recording_id?: number | null };
   watch_folder: string;
   auto_publish: boolean;
   active_course_id: number | null;

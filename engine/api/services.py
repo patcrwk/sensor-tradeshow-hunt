@@ -786,7 +786,9 @@ def recording_replay(rec: Recording) -> dict:
 def update_recording(rec_id: int, patch: dict) -> Recording:
     with session() as s:
         r = s.get(Recording, rec_id)
-        for k in ("title", "description", "profile", "annotations", "in_library"):
+        if "title" in patch and not str(patch["title"] or "").strip():
+            raise ValueError("the title cannot be empty")
+        for k in ("title", "description", "profile", "annotations", "in_library", "archived"):
             if k in patch:
                 setattr(r, k, patch[k])
         s.add(r)

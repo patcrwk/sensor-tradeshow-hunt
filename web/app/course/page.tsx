@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ErrorBox, Page, StatusPill } from "@/components/Nav";
-import { upload, useApi } from "@/lib/api";
+import { api, upload, useApi } from "@/lib/api";
 import { MODE_LABEL } from "@/lib/format";
 import { confirmDeleteCourse } from "@/lib/deleteCourse";
 
@@ -26,6 +26,10 @@ export default function Courses() {
       const c = await upload("/api/courses/survey", fd);
       router.push(`/course/${c.id}`);
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const archiveCourse = async (c: any, archived: boolean) => {
+    try { await api(`/api/courses/${c.id}/archive`, { method: "POST", json: { archived } }); list.reload(); }
+    catch (e: any) { alert(e.message); }
   };
   const importPkg = async (f: File) => {
     setErr(null);
@@ -73,7 +77,7 @@ export default function Courses() {
           <table className="grid-table">
             <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>Stations</th><th>Mode</th><th>GPS</th><th></th></tr></thead>
             <tbody>
-              {list.data?.map((c) => (
+              {list.data?.filter((c) => !c.archived).map((c) => (
                 <tr key={c.id}>
                   <td className="font-semibold">{c.name} {c.active && <span className="pill ml-1" style={{ color: "var(--good)", borderColor: "var(--good)" }}>active</span>}</td>
                   <td>v{c.version}</td>
@@ -83,6 +87,8 @@ export default function Courses() {
                   <td className="text-sm">{c.quality ?? "--"}</td>
                   <td className="whitespace-nowrap text-right">
                     <Link href={`/course/${c.id}`} className="btn text-sm">Open</Link>
+                    {!c.active && <button className="btn text-sm ml-2" title="Move to Old courses (can be restored)"
+                      onClick={() => archiveCourse(c, true)}>Archive</button>}
                     {!c.active && <button className="btn btn-danger text-sm ml-2" title="Delete this course"
                       onClick={async () => { if (await confirmDeleteCourse(c)) list.reload(); }}>Delete</button>}
                   </td>
@@ -90,7 +96,19 @@ export default function Courses() {
               ))}
             </tbody>
           </table>
-          {!list.data?.length && <div className="text-muted py-4">No courses yet. Without a published course, runs are timed START to FINISH only.</div>}
+          {!list.data?.filter((c) => !c.archived).length && <div className="text-muted py-4">No courses yet. Without a published course, runs are timed START to FINISH only.</div>}
+          {list.data?.some((c) => c.archived) && (
+            <details className="mt-5">
+              <summary className="cursor-pointer label">Old courses ({list.data.filter((c) => c.archived).length})</summary>
+              {list.data.filter((c) => c.archived).map((c) => (
+                <div key={c.id} className="flex justify-between items-center gap-2 py-2 border-b border-line text-muted">
+                  <Link href={`/course/${c.id}`} className="hover:text-brand flex-1">{c.name} v{c.version}</Link>
+                  <button className="btn text-xs py-1" onClick={() => archiveCourse(c, false)}>Restore</button>
+                  <button className="btn btn-danger text-xs py-1" onClick={async () => { if (await confirmDeleteCourse(c)) list.reload(); }}>Delete</button>
+                </div>
+              ))}
+            </details>
+          )}
         </div>
       </div>
     </Page>
