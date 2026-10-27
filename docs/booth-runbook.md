@@ -14,8 +14,9 @@
    `make kiosk` (browsers block autoplay with sound otherwise). The display
    needs internet access for YouTube; a video that cannot play is skipped.
    The **Recording Explorer walkthrough** panel plays one recording's 3D
-   replay (the whole recording in about 45 s), then its story, shock,
-   spectrum, environment and route screens. Pick the recording under Kiosk
+   replay (the whole recording in about 45 s), then its shock, spectrum,
+   environment and route screens, and finishes on its story. Archiving a
+   hunt run's recording (Old recordings) also takes it off the leaderboards. Pick the recording under Kiosk
    rotation (default: the first Demo Library recording).
 4. Admin > Watch folder: set the sensor's mount path, for example
    `/Volumes/*/DATA`. Plugged-in sensors are then read automatically.

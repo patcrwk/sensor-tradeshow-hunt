@@ -8,8 +8,8 @@ import { useApi } from "@/lib/api";
 import { fmtTime } from "@/lib/format";
 
 /* The display's Recording Explorer panel: walks through one recording the way a
-   visitor would in Recording Explorer (replay, story, shock, spectrum,
-   environment, route), then hands back to the rotation with onDone. */
+   visitor would in Recording Explorer (replay, shock, spectrum, environment,
+   route, and the story last), then hands back to the rotation with onDone. */
 
 const REPLAY_SECONDS = 45;          // the whole recording replays in about this long
 
@@ -26,12 +26,13 @@ export default function ExplorerMarquee({ rec, secs, onDone }: { rec: any; secs:
     const d = a.data;
     if (!d || !settled) return [];
     const out: string[] = [];
+    // playback first, then the dashboards, then the story to finish
     if (r.data) out.push("replay");
-    if (d.story?.timeline?.length) out.push("story");
     if (d.shock?.available) out.push("shock");
     if (f.data?.available && f.data.spectrogram) out.push("frequency");
     if (d.environment?.available && (d.environment.altitude_m || d.environment.temperature)) out.push("environment");
     if (d.gps?.available || d.track?.available) out.push("route");
+    if (d.story?.timeline?.length) out.push("story");
     return out;
   }, [a.data, f.data, r.data, settled]);
 

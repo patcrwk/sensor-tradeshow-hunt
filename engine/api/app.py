@@ -474,8 +474,12 @@ def _published_rows(with_result: bool = False) -> list[dict]:
     with session() as s:
         rows = s.exec(select(Run, Participant).where(Run.event_id == ev.id, Run.status == "published",
                                                      Run.participant_id == Participant.id)).all()
+        # a run whose recording was moved to Old recordings drops off the boards
+        hidden = set(s.exec(select(Recording.run_id).where(Recording.run_id.is_not(None), Recording.archived == True)).all())  # noqa: E712
     out = []
     for r, p in rows:
+        if r.id in hidden:
+            continue
         d = {"run_id": r.id, "name": p.display_name, "summary": r.summary or {}}
         if with_result:
             d["result"] = S.load_result(r)

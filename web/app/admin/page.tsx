@@ -165,7 +165,7 @@ export default function Admin() {
             <div className="label mb-1">Active course</div>
             <select className="input" value={s.active_course_id ?? ""} onChange={(e) => { setS({ ...s, active_course_id: e.target.value ? +e.target.value : null }); save({ active_course_id: e.target.value ? +e.target.value : 0 }); }}>
               <option value="">None (time START to FINISH only)</option>
-              {courses.data?.filter((c) => c.status === "published").map((c) => <option key={c.id} value={c.id}>{c.name} v{c.version}</option>)}
+              {courses.data?.filter((c) => c.status === "published" && (!c.archived || c.id === s.active_course_id)).map((c) => <option key={c.id} value={c.id}>{c.name} v{c.version}</option>)}
             </select>
           </div>
           <Field label={`Watch folder (sensor mounts as a USB drive; glob allowed, e.g. /Volumes/*/${s.sensor_data_subdir})`} value={s.watch_folder}

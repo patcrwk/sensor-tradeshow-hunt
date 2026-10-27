@@ -799,6 +799,8 @@ def update_recording(rec_id: int, patch: dict) -> Recording:
         a = restory(bundle_for(r.upload_id), a, r.profile, r.annotations)
         storage.put_json(r.analysis_path, a)
     bus.publish("recording", {"recording_id": rec_id})
+    if "archived" in patch and r.run_id:
+        bus.publish("leaderboard", {})
     return r
 
 

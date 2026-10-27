@@ -201,3 +201,20 @@ def test_delete_course(client, monkeypatch):
     d = client.get(f"/api/runs/{run['id']}").json()
     assert d["result"]["elapsed_s"] and d["run"]["course_id"] is None      # results kept
     assert client.get(f"/api/courses/{b['id']}").json()["data"]           # the shared survey file is kept for B
+
+
+def test_archived_run_leaves_leaderboard(client):
+    from engine.api import services as S
+    from engine.api.db import Recording, session
+    from sqlmodel import select
+    rows = client.get("/api/leaderboard?category=fastest").json()["rows"]
+    if not rows:
+        pytest.skip("no published run in this fixture")
+    run_id = rows[0]["run_id"]
+    S.ensure_run_recording(run_id)
+    with session() as s:
+        rec = s.exec(select(Recording).where(Recording.run_id == run_id)).first()
+    assert client.patch(f"/api/recordings/{rec.id}", json={"archived": True}).status_code == 200
+    assert run_id not in [r["run_id"] for r in client.get("/api/leaderboard?category=fastest").json()["rows"]]
+    client.patch(f"/api/recordings/{rec.id}", json={"archived": False})
+    assert run_id in [r["run_id"] for r in client.get("/api/leaderboard?category=fastest").json()["rows"]]
