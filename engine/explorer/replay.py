@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..config import get_config
-from ..detect.signal import butter, uniform
+from ..detect.signal import butter, estimate_rate, uniform
 from ..io.bundle import Bundle
 from ..position.gps_filter import filtered_track, valid_mask
 from ..position.projection import LocalFrame
@@ -65,10 +65,17 @@ def attitude(b: Bundle, fps: float, cfg, kp: float = 1.0, ki: float = 0.02) -> d
     if gyro is None or acc is None or len(gyro) < 20:
         return None
     tg, G, fsg = uniform(gyro, ["x", "y", "z"])
-    ta, A, fsa = uniform(acc, ["x", "y", "z"])
     # Gravity estimate: strong low-pass removes propeller and footstep vibration
-    Alp = butter(A, fsa, high=2.0)
-    Ag = np.column_stack([np.interp(tg, ta, Alp[:, i]) for i in range(3)])
+    # (one axis at a time to keep memory down on fast accelerometers)
+    t_acc = acc["t"].to_numpy()
+    fsa = estimate_rate(t_acc)
+    ta = np.arange(t_acc[0], t_acc[-1], 1.0 / fsa) if len(t_acc) > 1 else t_acc
+    cols = []
+    for c in ("x", "y", "z"):
+        x = np.interp(ta, t_acc, acc[c].to_numpy(dtype=np.float64)) if len(t_acc) > 1 else acc[c].to_numpy(dtype=np.float64)
+        cols.append(np.interp(tg, ta, butter(x[:, None], fsa, high=2.0)[:, 0]))
+        del x
+    Ag = np.column_stack(cols)
     quiet = np.linalg.norm(G, axis=1) < cfg.stillness.gyro_max_dps
     bias = np.median(G[quiet], axis=0) if quiet.sum() > fsg else np.zeros(3)
     W = np.radians(G - bias)
@@ -116,10 +123,18 @@ def activity(b: Bundle, t: np.ndarray, band=(50.0, 500.0)) -> np.ndarray | None:
     df = b.role(role)
     if df is None or len(df) < 100:
         return None
-    ts, A, fs = uniform(df, ["x", "y", "z"])
+    # one axis at a time: a 20 kHz channel filtered as one block needs about 500 MB
+    t_src = df["t"].to_numpy()
+    fs = estimate_rate(t_src)
+    ts = np.arange(t_src[0], t_src[-1], 1.0 / fs)
     hi = min(band[1], fs * 0.45)
     lo = min(band[0], hi / 4)
-    v = np.linalg.norm(butter(A, fs, low=lo, high=hi), axis=1)
+    v2 = np.zeros(len(ts))
+    for c in ("x", "y", "z"):
+        x = np.interp(ts, t_src, df[c].to_numpy(dtype=np.float64))
+        v2 += butter(x[:, None], fs, low=lo, high=hi)[:, 0] ** 2
+        del x
+    v = np.sqrt(v2)
     w = max(int(fs / 10), 1)
     n = len(v) // w
     rms = np.sqrt((v[: n * w] ** 2).reshape(n, w).mean(axis=1))

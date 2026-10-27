@@ -151,8 +151,12 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
 
     cfg = get_config()
     lc = cfg.large_recordings
-    streamed = src.stat().st_size > lc.stream_file_mb * 2**20
-    if streamed:                     # big file: keep only block metadata in memory (ide_stream.py)
+    size = src.stat().st_size
+    streamed = size > lc.stream_file_mb * 2**20
+    # mid-size files are also parsed without holding their samples, then read one
+    # channel at a time: a whole-file read of the 37 MB drone flight peaks above 512 MB
+    lowmem = streamed or size > lc.get("lowmem_file_mb", 24) * 2**20
+    if lowmem:                       # keep only block metadata in memory (ide_stream.py)
         doc, _ = S.open_streaming(src, lc.max_rows_per_channel,
                                   progress=(lambda f: progress(0.15 * f)) if progress else None)
     else:
@@ -162,15 +166,23 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
 
     counts = {c.id: _count(doc.channels[c.id]) for c in chans}
     factors = R.plan(counts, cfg, force=streamed)
+    full_ids = {c.id for c in chans if not factors or factors[c.id] == 1}
+
     raw: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-    for c in chans:
-        if not factors or factors[c.id] == 1:
-            raw[c.id] = _channel_arrays(doc.channels[c.id])
+    if not lowmem:
+        raw = {cid: _channel_arrays(doc.channels[cid]) for cid in full_ids}
     firsts = [v[0][0] for v in raw.values() if len(v[0])]
-    if factors:
-        firsts += [S.first_time(doc.channels[c.id].getSession())
-                   for c in chans if factors[c.id] > 1 and counts[c.id]]
+    for c in chans:
+        if c.id in raw or not counts[c.id]:
+            continue
+        ea = doc.channels[c.id].getSession()
+        if c.id in full_ids:         # first sample only; the channel is read when it is written
+            first = S.BlockReader(ea).arraySlice(0, 1) if counts[c.id] > lc.max_rows_per_channel else ea.arraySlice(0, 1)
+            firsts.append(float(first[0][0]))
+        else:
+            firsts.append(S.first_time(ea))
     t0_us = min(firsts) if firsts else 0.0
+    gps_ids = set(roles.get("gps") or [])
 
     ch_meta = []
     t_end = 0.0
@@ -183,13 +195,29 @@ def ide_to_bundle(src: str | Path, out_dir: str | Path, *, file_hash: str | None
     stat_ids = {roles.get("accel"), roles.get("hf_accel")}
     for c in chans:
         d = c.to_dict()
-        if c.id in raw:
-            t_us, vals = raw[c.id]
+        if c.id in full_ids and lowmem and counts[c.id] > lc.max_rows_per_channel and c.id not in gps_ids:
+            # long full-rate channel: decode and write it a slice at a time
+            r = S.BlockReader(doc.channels[c.id].getSession())
+
+            def pieces(r=r, c=c):
+                for i in range(0, len(r), lc.slice_rows):
+                    arr = r.arraySlice(i, min(i + lc.slice_rows, len(r)))
+                    yield (arr[0] - t0_us) / 1e6, {s.column: arr[1 + s.index] for s in c.subs if 1 + s.index < len(arr)}
+            n, t_last = B.write_channel_pieces(tmp, c.id, pieces())
+            if n:
+                t_end = max(t_end, t_last)
+        elif c.id in full_ids:
+            t_us, vals = raw[c.id] if c.id in raw else _channel_arrays(doc.channels[c.id])
             t = (t_us - t0_us) / 1e6
             cols = {s.column: vals[s.index] for s in c.subs if s.index < len(vals)}
             n = B.write_channel(tmp, c.id, t, cols)
             if n:
                 t_end = max(t_end, float(t[-1]))
+            if c.id in gps_ids:
+                raw[c.id] = (t_us, vals)
+            else:
+                raw.pop(c.id, None)
+            del t_us, vals, t, cols
         else:
             k = factors[c.id]
             colnames = [(s.index, s.column) for s in c.subs]

@@ -124,6 +124,10 @@ def release_memory() -> None:
             pass
 
 
+# replay builds and story rebuilds of long recordings take a few hundred MB each:
+# run them one at a time so several visitors cannot push the dyno past its memory
+_heavy_lock = threading.Lock()
+
 _sha_locks: dict[str, threading.Lock] = {}
 
 
@@ -167,14 +171,17 @@ def bundle_for(upload_id: int) -> Bundle:
 _bundle_lock = threading.Lock()
 
 
-@lru_cache(maxsize=6)
+@lru_cache(maxsize=2)                  # each open bundle keeps its channels in memory
 def _bundle(sha: str, key: str) -> Bundle:
     bdir = dirs()["bundles"] / sha[:16]
     if not (bdir / "meta.json").exists():
         with _bundle_lock:                          # cache wiped (Heroku restart): rebuild once
             if not (bdir / "meta.json").exists():
                 log.info("rebuilding cached bundle %s from stored original", sha[:16])
-                _build_bundle(key, sha)
+                try:
+                    _build_bundle(key, sha)
+                finally:
+                    release_memory()
     return open_bundle(bdir)
 
 
@@ -778,8 +785,15 @@ def recording_replay(rec: Recording) -> dict:
     cached = storage.get_json(key)
     if cached is not None:
         return cached
-    r = build_replay(bundle_for(rec.upload_id), recording_analysis(rec), model)
-    storage.put_json(key, r)
+    with _heavy_lock:
+        cached = storage.get_json(key)       # another request may have built it meanwhile
+        if cached is not None:
+            return cached
+        try:
+            r = build_replay(bundle_for(rec.upload_id), recording_analysis(rec), model)
+            storage.put_json(key, r)
+        finally:
+            release_memory()
     return r
 
 
@@ -795,9 +809,13 @@ def update_recording(rec_id: int, patch: dict) -> Recording:
         s.commit()
         s.refresh(r)
     if ("profile" in patch or "annotations" in patch) and r.analysis_path:
-        a = recording_analysis(r)
-        a = restory(bundle_for(r.upload_id), a, r.profile, r.annotations)
-        storage.put_json(r.analysis_path, a)
+        with _heavy_lock:
+            try:
+                a = recording_analysis(r)
+                a = restory(bundle_for(r.upload_id), a, r.profile, r.annotations)
+                storage.put_json(r.analysis_path, a)
+            finally:
+                release_memory()
     bus.publish("recording", {"recording_id": rec_id})
     if "archived" in patch and r.run_id:
         bus.publish("leaderboard", {})

@@ -146,6 +146,30 @@ def write_channel(path: Path, ch_id, t: np.ndarray, cols: dict[str, np.ndarray])
     return len(df)
 
 
+def write_channel_pieces(path: Path, ch_id, pieces) -> tuple[int, float]:
+    """write_channel for a channel handed over in (t, cols) pieces. Returns (rows, last t)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    writer, n, t_last = None, 0, 0.0
+    try:
+        for t, cols in pieces:
+            if not len(t):
+                continue
+            table = pa.table({"t": np.asarray(t, dtype=np.float64),
+                              **{k: np.asarray(v, dtype=np.float32) for k, v in cols.items()}})
+            if writer is None:
+                writer = pq.ParquetWriter(path / f"ch_{ch_id}.parquet", table.schema)
+            writer.write_table(table)
+            n += len(t)
+            t_last = float(t[-1])
+    finally:
+        if writer is not None:
+            writer.close()
+    if writer is None:
+        write_channel(path, ch_id, np.empty(0), {})
+    return n, t_last
+
+
 def write_gps(path: Path, df: pd.DataFrame) -> None:
     df = df.copy()
     df["t"] = df["t"].astype(np.float64)
