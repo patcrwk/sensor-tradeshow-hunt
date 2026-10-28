@@ -31,6 +31,8 @@ def process_run(b: Bundle, course: dict | None, cfg=None, overrides: dict | None
         # (counted out too quickly) still counts when a scan pairs with it.
         st = detect_rests(b, cfg, min_rest_s=cfg.stillness.qr_min_rest_s)
         qr = match_scans(scans, st.rests, b.meta.get("start_epoch"), cfg)
+        if cfg.stillness.get("qr_mag_band_g"):
+            qr = _add_off_band(b, cfg, st, scans, qr)
         keep = [i for i, r in enumerate(st.rests)
                 if r.duration >= cfg.stillness.min_rest_s or qr["per_rest"][i].get("available")]
         dropped = [r for i, r in enumerate(st.rests) if i not in set(keep)]
@@ -132,6 +134,29 @@ def process_run(b: Bundle, course: dict | None, cfg=None, overrides: dict | None
     }
 
 
+def _add_off_band(b: Bundle, cfg, st, scans: list[dict], qr: dict) -> dict:
+    """A sensor out of calibration can read well off 1 g lying still in one pose
+    (one booth sensor read 0.85 g face down). Such a rest fails the |a| band, so
+    look again with a wider band and keep the extra rests a scan pairs with. The
+    clock offset found from the normal rests is reused, so runs without such
+    rests come out the same."""
+    if qr.get("offset_s") is None:
+        return qr
+    wide = detect_rests(b, cfg, min_rest_s=cfg.stillness.qr_min_rest_s, mag_band_g=cfg.stillness.qr_mag_band_g)
+    extra = [r for r in wide.rests if not any(r.start < o.end and o.start < r.end for o in st.rests + st.rejected)]
+    if not extra:
+        return qr
+    for r in extra:
+        r.reason = "off_band"
+    rests = sorted(st.rests + extra, key=lambda r: r.start)
+    q = match_scans(scans, rests, b.meta.get("start_epoch"), cfg, offset=qr["offset_s"])
+    keep = [i for i, r in enumerate(rests) if r.reason != "off_band" or q["per_rest"][i].get("available")]
+    st.rests = [rests[i] for i in keep]
+    q["per_rest"] = [q["per_rest"][i] for i in keep]
+    q["off_band_rests"] = len(keep) - (len(rests) - len(extra))
+    return q
+
+
 def _entry(r: Rest, idn: dict | None) -> dict:
     return {
         "rest_start": round(r.start, 2), "rest_end": round(r.end, 2), "rest_mid": round(r.mid, 2),
@@ -143,6 +168,7 @@ def _entry(r: Rest, idn: dict | None) -> dict:
         "reason": idn.get("reason") if idn else None,
         "methods": idn["methods"] if idn else [],
         "source": "auto",
+        "off_band": r.reason == "off_band",          # counted only because a scan paired with it
         "x": next((m.get("x") for m in (idn or {}).get("methods", []) if m.get("x") is not None), None),
         "y": next((m.get("y") for m in (idn or {}).get("methods", []) if m.get("y") is not None), None),
     }

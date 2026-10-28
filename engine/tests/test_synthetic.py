@@ -152,3 +152,32 @@ def test_qr_checkins_no_gps(tmp_path, skew):
         assert abs(res["qr"]["offset_s"] - skew) < 45
         assert res["complete"] and not res["needs_review"]
         assert len(res["strays"]) == 1                          # the unscanned stop stays a stray
+
+
+def test_qr_off_band_rest(tmp_path):
+    """A sensor out of calibration reads well below 1 g in one pose (0.85 g face down).
+    The rest fails the |a| band, but a scan pairs with it, so it still counts."""
+    import pandas as pd
+    sv = _survey(tmp_path, "none")
+    course = derive_course([sv])
+    course["identity_methods"] = ["qr"]
+    rc = runtime_course(course)
+    b = _runs(tmp_path, "none", n=1)[0]
+    gt = b.ground_truth()
+    start = b.meta["start_epoch"]
+    scans = [{"station": "BOOTH" if r["label"] in ("START", "FINISH") else f"S{r['label']}", "at": start + r["start"] + 1}
+             for r in gt["rests"] if r["kind"] != "stray"]
+    # station 3 and the unscanned stray stop both read 0.85 g; only the scanned one may count
+    f = b.path / f"ch_{b.roles['accel']}.parquet"
+    acc = pd.read_parquet(f)
+    for r in gt["rests"]:
+        if r["label"] == 3 or r["kind"] == "stray":
+            m = acc["t"].between(r["start"] - 1, r["end"] + 1)
+            acc.loc[m, ["x", "y", "z"]] *= 0.85
+    acc.to_parquet(f, index=False)
+    b = open_bundle(b.path)
+
+    assert "S3" not in [c["station"] for c in process_run(b, rc, scans=[s for s in scans if s["station"] != "S3"])["checkins"]]
+    res = process_run(b, rc, scans=scans)
+    assert "S3" in [c["station"] for c in res["checkins"]]
+    assert res["complete"] and res["qr"]["off_band_rests"] == 1 and not res["strays"]

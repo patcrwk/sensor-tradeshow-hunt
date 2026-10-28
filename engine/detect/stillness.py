@@ -27,7 +27,7 @@ class Rest:
     gyro_mean_dps: float | None
     tremor_rms_g: float
     accepted: bool
-    reason: str                 # "surface", "hand_held", "too_short"
+    reason: str                 # "surface", "off_band", "hand_held", "too_short"
 
     @property
     def mid(self) -> float:
@@ -54,9 +54,11 @@ class StillnessResult:
     fs: float
 
 
-def detect_rests(b: Bundle, cfg=None, min_rest_s: float | None = None) -> StillnessResult:
+def detect_rests(b: Bundle, cfg=None, min_rest_s: float | None = None,
+                 mag_band_g: float | None = None) -> StillnessResult:
     cfg = cfg or get_config()
     c = cfg.stillness
+    band = c.mag_band_g if mag_band_g is None else mag_band_g
     acc = b.role("accel")
     if acc is None or len(acc) < 10:
         return StillnessResult([], [], np.array([]), np.array([]), np.array([]), 0.0)
@@ -65,7 +67,7 @@ def detect_rests(b: Bundle, cfg=None, min_rest_s: float | None = None) -> Stilln
     n = int(round(c.window_s * fs))
     mmean = rolling(mag, n, "mean")
     mstd = rolling(mag, n, "std")
-    still = (np.abs(mmean - 1.0) < c.mag_band_g) & (mstd < c.accel_std_g)
+    still = (np.abs(mmean - 1.0) < band) & (mstd < c.accel_std_g)
 
     gyro = b.role("gyro")
     gmag = None

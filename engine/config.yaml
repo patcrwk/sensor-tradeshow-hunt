@@ -17,6 +17,7 @@ stillness:
   settle_gap_s: 2.5              # join rests split by a bump up to this long, if the pose did not change
   settle_max_deg: 12.0           # "same pose" tolerance for that join
   qr_min_rest_s: 4.0             # with QR check-ins, a rest this short counts when a scan pairs with it
+  qr_mag_band_g: 0.2             # and a still rest this far from 1 g (a sensor out of calibration, set face down)
   tremor_band_hz: [4.0, 12.0]    # hand tremor band
   tremor_rms_max_g: 0.0035       # band RMS above this = held in a hand, rejected
   gravity_lowpass_hz: 0.3

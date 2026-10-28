@@ -187,7 +187,7 @@ function CheckinReview({ runId, res, cd, overrides, onSaved }: { runId: number; 
                   {stations.map((s) => <option key={s.id} value={s.id}>{s.number}. {s.name}</option>)}
                 </select>
               </td>
-              <td><StatusPill status={r.status} />{r.source === "manual" && <span className="pill ml-1 text-muted">manual</span>}{r.duplicate && <span className="pill ml-1 text-warn">duplicate</span>}
+              <td><StatusPill status={r.status} />{r.source === "manual" && <span className="pill ml-1 text-muted">manual</span>}{r.duplicate && <span className="pill ml-1 text-warn">duplicate</span>}{r.off_band && <span className="pill ml-1 text-warn" title="The sensor read well off 1 g during this stop; it counts because a scan paired with it. Check the sensor's calibration.">sensor off 1 g</span>}
                 {r.reason && <div className="text-xs text-warn">{r.reason}</div>}</td>
               <td className="text-sm">{r.methods?.length ? explain(r, names) : r.source === "manual" ? "added by staff" : `still for ${Number(r.duration).toFixed(0)} s`}</td>
               <td><button className="btn btn-danger text-sm" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button></td>

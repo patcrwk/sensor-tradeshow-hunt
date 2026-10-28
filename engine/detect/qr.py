@@ -37,8 +37,10 @@ def _pairs(scan_t: np.ndarray, rests: list, offset: float, before: float, after:
     return out
 
 
-def match_scans(scans: list[dict], rests: list, sensor_start_epoch: float | None, cfg=None) -> dict:
-    """scans: [{station, at (epoch)}]. Returns {per_rest: [method result per rest], offset_s, matched}."""
+def match_scans(scans: list[dict], rests: list, sensor_start_epoch: float | None, cfg=None,
+                offset: float | None = None) -> dict:
+    """scans: [{station, at (epoch)}]. Returns {per_rest: [method result per rest], offset_s, matched}.
+    offset: a clock offset found earlier; skips the search."""
     cfg = cfg or get_config()
     c = cfg.qr
     n = len(rests)
@@ -49,16 +51,17 @@ def match_scans(scans: list[dict], rests: list, sensor_start_epoch: float | None
     scans = sorted(scans, key=lambda s: s["at"])
     scan_t = np.array([s["at"] - sensor_start_epoch for s in scans], float)   # in sensor seconds, before skew
 
-    # Coarse-to-fine search over the clock offset
-    best = (-1, 1e18, 0.0)          # (pairs, total gap, offset)
-    for step, lo, hi in ((5.0, -c.max_clock_skew_s, c.max_clock_skew_s), (0.5, -10.0, 10.0)):
-        center = 0.0 if step == 5.0 else best[2]
-        for off in np.arange(center + lo, center + hi + step / 2, step):
-            p = _pairs(scan_t, rests, off, c.scan_before_rest_s, c.scan_after_rest_s)
-            score = (len(p), -sum(g for *_, g in p) - 0.01 * abs(off))
-            if (score[0], score[1]) > (best[0], -best[1]):
-                best = (len(p), -score[1], float(off))
-    offset = best[2]
+    if offset is None:
+        # Coarse-to-fine search over the clock offset
+        best = (-1, 1e18, 0.0)          # (pairs, total gap, offset)
+        for step, lo, hi in ((5.0, -c.max_clock_skew_s, c.max_clock_skew_s), (0.5, -10.0, 10.0)):
+            center = 0.0 if step == 5.0 else best[2]
+            for off in np.arange(center + lo, center + hi + step / 2, step):
+                p = _pairs(scan_t, rests, off, c.scan_before_rest_s, c.scan_after_rest_s)
+                score = (len(p), -sum(g for *_, g in p) - 0.01 * abs(off))
+                if (score[0], score[1]) > (best[0], -best[1]):
+                    best = (len(p), -score[1], float(off))
+        offset = best[2]
     pairs = _pairs(scan_t, rests, offset, c.scan_before_rest_s, c.scan_after_rest_s)
 
     per_rest = [dict(e) for e in empty]
